@@ -22,8 +22,7 @@ No launch options needed. Manager can close after setup.
 Remove a game from **My Games** to disable routing on its next launch.
 
 Use compatible game versions and AppID 480 on both sides. Run one game at a time.
-Compatibility varies by game; Steam updates may require updated signatures.
-
+Compatibility varies by game
 ## Game-specific patches
 
 Open **My Games → Patches…** and relaunch after saving.
