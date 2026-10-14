@@ -1,0 +1,116 @@
+#include "onlinefix.h"
+#include "../vendor/cJSON.h"
+#include <ctype.h>
+#include <mach-o/dyld.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static bool code_region(const unsigned char **code, size_t *length) {
+    for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
+        const char *image = _dyld_get_image_name(i);
+        const char *base = image ? strrchr(image, '/') : NULL;
+        if (!image || strcmp(base ? base + 1 : image, "steamclient.dylib")) continue;
+        const struct mach_header_64 *h = (const void *)_dyld_get_image_header(i);
+        if (h->magic != MH_MAGIC_64 || h->cputype != CPU_TYPE_ARM64) return false;
+        const unsigned char *p = (const void *)(h + 1), *end = p + h->sizeofcmds;
+        for (uint32_t j = 0; j < h->ncmds && (size_t)(end - p) >= sizeof(struct load_command); ++j) {
+            const struct load_command *cmd = (const void *)p;
+            if (cmd->cmdsize < sizeof(*cmd) || cmd->cmdsize > (size_t)(end - p)) return false;
+            if (cmd->cmd == LC_SEGMENT_64 && cmd->cmdsize >= sizeof(struct segment_command_64)) {
+                const struct segment_command_64 *seg = (const void *)p;
+                if (seg->nsects > (cmd->cmdsize - sizeof(*seg)) / sizeof(struct section_64)) return false;
+                const struct section_64 *sections = (const void *)(seg + 1);
+                for (uint32_t k = 0; k < seg->nsects; ++k) {
+                    if (!strncmp(sections[k].sectname, "__text", 16) &&
+                        !strncmp(sections[k].segname, "__TEXT", 16)) {
+                        *code = (const void *)(sections[k].addr + _dyld_get_image_vmaddr_slide(i));
+                        *length = sections[k].size;
+                        return true;
+                    }
+                }
+            }
+            p += cmd->cmdsize;
+        }
+    }
+    return false;
+}
+
+static int nibble(char c) {
+    const char *digits = "0123456789abcdef";
+    const char *p = c ? strchr(digits, tolower((unsigned char)c)) : NULL;
+    return p ? (int)(p - digits) : -1;
+}
+
+// Profiles use whitespace-separated hex bytes or ??; only aligned, unique hits are accepted.
+static const unsigned char *match(const unsigned char *code, size_t size, const char *pattern) {
+    unsigned char bytes[4096], fixed[4096];
+    size_t n = 0;
+    bool has_fixed = false;
+    if (!pattern) return NULL;
+    while (*pattern) {
+        while (isspace((unsigned char)*pattern)) ++pattern;
+        if (!*pattern) break;
+        if (!pattern[1] || n == sizeof(bytes)) return NULL;
+        if (pattern[0] == '?' && pattern[1] == '?') { bytes[n] = 0; fixed[n] = 0; }
+        else {
+            int a = nibble(pattern[0]), b = nibble(pattern[1]);
+            if (a < 0 || b < 0) return NULL;
+            bytes[n] = (unsigned char)(a * 16 + b); fixed[n] = 1; has_fixed = true;
+        }
+        ++n; pattern += 2;
+        if (*pattern && !isspace((unsigned char)*pattern)) return NULL;
+    }
+    if (!n || n > size || !has_fixed) return NULL;
+    const unsigned char *found = NULL;
+    for (size_t offset = 0; offset <= size - n; offset += 4) {
+        size_t j = 0;
+        while (j < n && (!fixed[j] || code[offset + j] == bytes[j])) ++j;
+        if (j != n) continue;
+        if (found) return NULL;
+        found = code + offset;
+    }
+    return found;
+}
+
+bool of_resolve(const char *profile, const char *const *names, void **addresses, size_t count) {
+    const unsigned char *code;
+    size_t size;
+    if (!profile || !code_region(&code, &size)) return false;
+    FILE *file = fopen(profile, "rb");
+    if (!file) { of_log("cannot read profile %s", profile); return false; }
+    char *raw = malloc(1024 * 1024 + 1);
+    if (!raw) { fclose(file); return false; }
+    size_t length = fread(raw, 1, 1024 * 1024 + 1, file);
+    bool valid = !ferror(file) && length > 0 && length <= 1024 * 1024;
+    fclose(file);
+    cJSON *root = valid ? cJSON_ParseWithLength(raw, length) : NULL;
+    free(raw);
+    if (!root) { of_log("invalid profile: %s", profile); return false; }
+    cJSON *arch = cJSON_GetObjectItemCaseSensitive(root, "arch");
+    cJSON *sigs = cJSON_GetObjectItemCaseSensitive(root, "signatures");
+    valid = cJSON_IsString(arch) && !strcmp(arch->valuestring, "arm64") && cJSON_IsArray(sigs);
+    for (size_t i = 0; valid && i < count; ++i) {
+        cJSON *entry, *selected = NULL;
+        cJSON_ArrayForEach(entry, sigs) {
+            cJSON *name = cJSON_GetObjectItemCaseSensitive(entry, "name");
+            if (cJSON_IsString(name) && !strcmp(name->valuestring, names[i])) {
+                if (selected) { valid = false; break; }
+                selected = entry;
+            }
+        }
+        cJSON *aob = cJSON_GetObjectItemCaseSensitive(selected, "aob_hex");
+        cJSON *offset = cJSON_GetObjectItemCaseSensitive(selected, "match_offset");
+        double adjustment = offset ? offset->valuedouble : 0;
+        const unsigned char *hit = cJSON_IsString(aob) ? match(code, size, aob->valuestring) : NULL;
+        if (!valid || !hit || (offset && !cJSON_IsNumber(offset)) || adjustment < 0 ||
+            adjustment > hit - code || adjustment != (double)(size_t)adjustment ||
+            (size_t)adjustment % 4) {
+            of_log("profile target missing, invalid or ambiguous: %s", names[i]); valid = false; break;
+        }
+        addresses[i] = (void *)(hit - (size_t)adjustment);
+        for (size_t j = 0; j < i; ++j) if (addresses[j] == addresses[i]) valid = false;
+    }
+    cJSON_Delete(root);
+    return valid;
+}

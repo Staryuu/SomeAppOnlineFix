@@ -1,0 +1,1 @@
+# Internal symbols stay private, including the statically linked hook engine.
