@@ -11,4 +11,4 @@ Initial release for Apple Silicon, macOS 15+.
 - Terraria server environment fix with automatic restoration on uninstall.
 - Logs reset on each Steam launch.
 
-Manager can close after setup. Full multiplayer compatibility varies by game.
+Terraria now can host & play, (multiplayer not tested yet)
