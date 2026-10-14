@@ -52,7 +52,9 @@ Settings, backups, and logs:
 
 ## Development
 
-Dylib: `src/`. Swift app: `OnlineFixManager/`. Tests: `make test`.
+Dylib: `src/`
+Swift app: `OnlineFixManager/`
+Tests: `make test`.
 
 ### Releases
 
