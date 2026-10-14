@@ -459,6 +459,7 @@ private struct ManagerView: View {
                     if remove { try target.uninstall() } else { try target.install() }
                 }.value
                 installed = target.isInstalled()
+                if remove { games = try files.load() }
                 message = remove ? "OnlineFix removed. Your game list and logs were kept." : "Installed. Launch Steam normally; you can close Manager now."
             } catch { self.error = error.localizedDescription; message = ""; installed = target.isInstalled() }
         }

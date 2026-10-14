@@ -1,56 +1,70 @@
 # OnlineFixMac
 
-Experimental OnlineFix for macOS. Routes selected games to Spacewar (AppID 480).
-OnlineFix Manager handles installation, game selection, and settings.
+Steam OnlineFix for macOS with a native Manager and per-game patches.
+Routes selected games to AppID 480.
 
 ## Build and use
 
-Apple Silicon only, macOS 15+. Install Steam and launch it once first.
-Requires Xcode Command Line Tools and CMake.
+Apple Silicon, macOS 15+. Requires Steam, Xcode Command Line Tools, and CMake.
 
 ```bash
 make -j4
 open out/OnlineFixManager.app
 ```
 
-1. Quit Steam. Open **Installation** and click **Install OnlineFix**.
-2. Go to **Add Games**. Search by name or enter the game's AppID.
-3. Add the game, then open Steam normally.
+The first build downloads Dobby. cJSON is included.
 
-No `-onlinefix` launch option is needed. Manager does not need to stay open.
-Open **My Games → Patches…** to change compatibility patches for one game.
-If the game has startup issues, try **Keep real AppID**. Relaunch after saving.
-For Terraria's server-launch failure, enable **Server environment fix** under
-**Patches…**. It updates only the server shell launcher and keeps an adjacent
-`.onlinefix-backup`. Disabling restores it; game updates may overwrite the patch.
-Remove a game from **My Games** and relaunch it to disable automatic routing.
+1. Quit Steam → **Installation → Install OnlineFix**.
+2. **Add Games** → search by name or AppID → add.
+3. Open Steam and launch the game.
 
-Both players need compatible game versions and matchmaking through AppID 480.
-Normal game lobbies are separate. Run only one game at a time.
-Full multiplayer remains unverified. Steam updates may require reinstalling
-OnlineFix or updating its signatures.
+No launch options needed. Manager can close after setup.
+Remove a game from **My Games** to disable routing on its next launch.
+
+Use compatible game versions and AppID 480 on both sides. Run one game at a time.
+Compatibility varies by game; Steam updates may require updated signatures.
+
+## Game-specific patches
+
+Open **My Games → Patches…** and relaunch after saving.
+
+| Game | Patch | Purpose |
+| --- | --- | --- |
+| Terraria | Server environment fix | Fixes server startup by clearing inherited Steam injection. |
+
+Only shown for Terraria. Keeps a `.onlinefix-backup`; disabling or uninstalling
+restores the launcher. Game updates may overwrite the patch.
+
+General AppID patches are available for every game. Try **Keep real AppID** for startup issues.
 
 ## Uninstall
 
-Disable Terraria's **Server environment fix** first to restore its launcher.
-Quit Steam, open **Installation**, and click **Uninstall**.
-This restores the backed-up Steam bundle and keeps your game list and logs.
-Keep the `backup` folder until you uninstall. If Steam changed after installation,
-removal refuses to restore an older bundle.
+Quit Steam → **Installation → Uninstall**.
+Restores Steam and active file patches; keeps your game list and logs.
+Keep the backup. Restoration is blocked if Steam or a patched launcher changed.
 
-Settings, backups, and logs are here:
+Settings, backups, and logs:
 
 ```text
 ~/Library/Application Support/OnlineFixManager/
 ```
 
-Check **Logs** or `onlinefix.log` if something fails.
-The log resets on each Steam launch. Copy it before restarting if needed.
+**Logs** shows the current Steam session. Copy the log before restarting to keep it.
 
 ## Development
 
-Dylib source is in `src/`. Swift app source is in `OnlineFixManager/`.
-Run `make test` for the routing and installer checks.
+Dylib: `src/`. Swift app: `OnlineFixManager/`. Tests: `make test`.
+
+### Releases
+
+Open **Actions → Build and release → Run workflow**. Enter the Manager version
+(starting at `1.0.0`) and target Steam version. The Manager version must match
+`OnlineFixManager/Info.plist` and an entry in [CHANGELOG.md](CHANGELOG.md).
+
+The manual workflow builds, tests, and publishes the Manager ZIP and SHA-256
+checksum, creating the `vX.Y.Z` tag for the selected commit if needed.
+Target Steam version is recorded in the release description; it does not change
+the bundled signature profile. Builds use ad-hoc signing and are not notarized.
 
 ### Game patches
 
@@ -65,20 +79,26 @@ function pointer. `onlinefix.c` handles core routing and hook registration.
 | `stats.c` | `statsAppID` |
 | `terraria_server.c` | `terrariaServerEnvironment` (Terraria only) |
 
-The four AppID patches default to on; the Terraria server fix defaults to off.
-Manager saves them in each game's `patches` object in
-`games.json`. Old configs keep these defaults. **Keep real AppID** overrides
-startup-only reporting; matchmaking still uses 480.
+AppID patches default to on;
+Settings live in each game's `patches` object in `games.json`.
 
 For a new patch, add its implementation here, guard it with `OFSession.game`,
 and register its `OFHook` in `onlinefix.c`. Add its toggle to `patch.h`,
 `settings.c`, Swift `PatchSettings`, and the settings sheet. Test on/off behavior
 and a different AppID. New `.c` files are built automatically.
 
-New patch code needs a rebuild and reinstall. Changing existing toggles only
-needs a game relaunch.
-The Terraria file patch is applied/restored by Manager when saving its toggle.
+Rebuild and reinstall after adding patch code. Toggle changes need a game relaunch.
+Manager applies/restores file patches when saving settings or uninstalling.
+
+## Credits
+
+- [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) / [OpenSteamTool](https://github.com/OpenSteam001/OpenSteamTool) — OnlineFix approach.
+- [macSteam](https://github.com/Selectively11/macSteam) — Steam hook and ABI reference;
+- [Dobby](https://github.com/jmpews/Dobby) — function hooking.
+- [cJSON](https://github.com/DaveGamble/cJSON) — configuration parsing.
 
 ## License
 
-See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md) for credits and dependencies.
+- OnlineFixManager — [AGPL-3.0](LICENSE).
+- Dobby — Apache-2.0; `vendor/dobby/LICENSE` after download.
+- cJSON — MIT; included in its source files.

@@ -173,7 +173,8 @@ struct SteamInstaller: Sendable {
         }
     }
 
-    func uninstall() throws {
+    func uninstall(steamRoot: URL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Steam")) throws {
         try locked {
             let fm = FileManager.default
             let record = try JSONDecoder().decode(Receipt.self, from: Data(contentsOf: receipt))
@@ -183,13 +184,41 @@ struct SteamInstaller: Sendable {
                 throw ManagerError(message: "Steam changed after installation. Refusing to restore an older bundle. Keep the backup; use a clean Steam installation to recover.")
             }
             guard try fingerprint(backup) == record.originalHash else { throw ManagerError(message: "The backup changed or is incomplete. Steam was not modified.") }
+            let games = try files.load()
+            var updatedGames = games
+            var restoredLauncher: URL?
+            var settingsChanged = false
+            var exchanged = false
             let staging = app.deletingLastPathComponent().appendingPathComponent(".OnlineFix-restore-\(UUID().uuidString).app")
             try Self.run("/usr/bin/ditto", [backup.path, staging.path])
             do {
+                if let index = games.firstIndex(where: { $0.id == 105600 && $0.patches.terrariaServerEnvironment }) {
+                    guard let directory = try SteamLibrary.scan(root: steamRoot)
+                        .first(where: { $0.id == 105600 })?.installDirectory else {
+                        throw ManagerError(message: "Cannot locate Terraria to restore its server launcher. Reconnect its Steam library and retry uninstalling.")
+                    }
+                    let launcher = directory.appendingPathComponent("Terraria.app/Contents/MacOS/TerrariaServer")
+                    try TerrariaServerPatch.setEnabled(false, launcher: launcher)
+                    restoredLauncher = launcher
+                    updatedGames[index].patches.terrariaServerEnvironment = false
+                    try files.save(updatedGames)
+                    settingsChanged = true
+                }
                 try swap(staging)
-                do { try register() }
-                catch { try swap(staging); throw error }
-            } catch { try? fm.removeItem(at: staging); throw error }
+                exchanged = true
+                try register()
+            } catch {
+                let uninstallError = error
+                do {
+                    if exchanged { try swap(staging); try? register() }
+                    if let launcher = restoredLauncher { try TerrariaServerPatch.setEnabled(true, launcher: launcher) }
+                    if settingsChanged { try files.save(games) }
+                } catch {
+                    throw ManagerError(message: "Uninstall rollback failed. Keep the Steam backup, \(staging.path), and Terraria's .onlinefix-backup for recovery.\n\(error.localizedDescription)")
+                }
+                try? fm.removeItem(at: staging)
+                throw uninstallError
+            }
             try? fm.removeItem(at: staging)
             try fm.removeItem(at: receipt)
             try fm.removeItem(at: backup.deletingLastPathComponent())

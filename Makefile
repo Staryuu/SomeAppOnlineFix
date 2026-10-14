@@ -25,7 +25,12 @@ out/manager.stamp: $(MANAGER_SOURCES) OnlineFixManager/Info.plist out/onlinefix.
 	codesign --force --sign - out/OnlineFixManager.app
 	@touch $@
 
-$(DOBBY)/libdobby.a:
+vendor/dobby/include/dobby.h:
+	bash scripts/fetch-dobby.sh
+
+$(OBJS): | vendor/dobby/include/dobby.h
+
+$(DOBBY)/libdobby.a: vendor/dobby/include/dobby.h
 	cmake -S vendor/dobby -B $(DOBBY) -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=$(MIN_VER) -DDOBBY_DEBUG=OFF
 	$(MAKE) -C $(DOBBY) -j4
 
@@ -48,6 +53,8 @@ out/test_onlinefix: tests/test_onlinefix.c src/session.c src/onlinefix.c src/pro
 	@mkdir -p out
 	$(CC) $(CFLAGS) tests/test_onlinefix.c src/session.c src/config.c $(PATCH_SRCS) vendor/cJSON.c -o $@
 
+out/test_onlinefix: | vendor/dobby/include/dobby.h
+
 out/test_manager: OnlineFixManager/Tests.swift OnlineFixManager/Models.swift OnlineFixManager/Installer.swift OnlineFixManager/SteamStore.swift OnlineFixManager/TerrariaServerPatch.swift $(TERRARIA_PATCH_OBJ) src/patch/terraria_server.h
 	@mkdir -p out
 	xcrun swiftc $(SWIFTFLAGS) $(filter %.swift %.o,$^) -o $@
@@ -56,6 +63,7 @@ test: out/test_onlinefix out/test_manager out/manager.stamp
 	./out/test_manager "$(CURDIR)/out/OnlineFixManager.app/Contents/Resources/runtime" "$(CURDIR)/out/test-manager-config.json"
 	ONLINEFIX_TEST_CONFIG="$(CURDIR)/out/test-manager-config.json" ./out/test_onlinefix
 	bash -n scripts/launch.sh
+	bash tests/test_fetch_dobby.sh
 
 clean:
 	rm -rf out build

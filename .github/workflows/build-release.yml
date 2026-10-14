@@ -1,0 +1,68 @@
+name: Build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      onlinefix_version:
+        description: 'OnlineFixManager version (for example 1.0.0; tag: v1.0.0)'
+        required: true
+        default: '1.0.0'
+        type: string
+      steam_version:
+        description: 'Target Steam version (included in the release description)'
+        required: true
+        default: '1791918634'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      RELEASE_VERSION: ${{ inputs.onlinefix_version }}
+      STEAM_VERSION: ${{ inputs.steam_version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check architecture and tools
+        run: |
+          test "$(uname -m)" = arm64
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$STEAM_VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]]
+          test "$RELEASE_VERSION" = "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' OnlineFixManager/Info.plist)"
+          xcrun swiftc --version
+          cmake --version
+      - name: Build and test
+        run: make -j4 test
+      - name: Package release
+        run: bash scripts/package-release.sh
+      - uses: actions/upload-artifact@v6
+        with:
+          name: OnlineFixManager-macos-arm64
+          path: out/release/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: OnlineFixManager-macos-arm64
+          path: release
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.onlinefix_version }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          gh release create "v$RELEASE_VERSION" release/*.zip release/SHA256SUMS \
+            --target "$RELEASE_COMMIT" --title "OnlineFixManager $RELEASE_VERSION" \
+            --notes-file release/notes.md

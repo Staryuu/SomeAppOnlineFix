@@ -155,7 +155,32 @@ import Foundation
         try check(Data(contentsOf: app.appendingPathComponent("Contents/MacOS/steam_osx")) == originalExecutable)
         try check(files.load() == [game])
         try SteamInstaller.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
-        print("Manager checks passed: config, library scan, Terraria server patch and environment, persistent install, preservation, update guard, uninstall.")
+
+        let installedLauncher = root.appendingPathComponent("steamapps/common/Terraria/Terraria.app/Contents/MacOS/TerrariaServer")
+        let installedLauncherBackup = URL(fileURLWithPath: installedLauncher.path + ".onlinefix-backup")
+        try fm.createDirectory(at: installedLauncher.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try originalLauncher.write(to: installedLauncher)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedLauncher.path)
+        try TerrariaServerPatch.setEnabled(true, launcher: installedLauncher)
+        var patchedGame = game
+        patchedGame.patches.terrariaServerEnvironment = true
+        try files.save([patchedGame])
+        try installer.install()
+        try expectFailure { try installer.uninstall(steamRoot: temporary.appendingPathComponent("Disconnected library")) }
+        precondition(installer.isInstalled())
+        try Data((String(decoding: patchedLauncher, as: UTF8.self) + "# changed\n").utf8).write(to: installedLauncher)
+        try expectFailure { try installer.uninstall(steamRoot: root) }
+        precondition(installer.isInstalled())
+        try check(files.load() == [patchedGame])
+        precondition(fm.fileExists(atPath: installedLauncherBackup.path))
+        try patchedLauncher.write(to: installedLauncher)
+        try installer.uninstall(steamRoot: root)
+        precondition(!installer.isInstalled())
+        try check(Data(contentsOf: installedLauncher) == originalLauncher)
+        precondition(!fm.fileExists(atPath: installedLauncherBackup.path))
+        try check(files.load() == [game])
+        try check(Data(contentsOf: plist) == originalInfo)
+        print("Manager checks passed: config, library scan, Terraria server patch and environment, persistent install, preservation, update guard, automatic patch restoration on uninstall.")
     }
 
     static func check(_ value: @autoclosure () throws -> Bool) throws {
