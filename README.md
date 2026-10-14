@@ -31,8 +31,10 @@ Open **My Games → Patches…** and relaunch after saving.
 | --- | --- | --- |
 | Terraria | Server environment fix | Fixes server startup by clearing inherited Steam injection. |
 
-Only shown for Terraria. Keeps a `.onlinefix-backup`; disabling or uninstalling
-restores the launcher. Game updates may overwrite the patch.
+Only shown for Terraria. Keeps a `.onlinefix-backup`
+disabling or uninstalling
+restores the launcher. 
+Game updates may overwrite the patch.
 
 General AppID patches are available for every game. Try **Keep real AppID** for startup issues.
 
