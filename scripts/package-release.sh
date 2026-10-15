@@ -8,10 +8,12 @@ if [[ ${RELEASE_VERSION:-$VERSION} != "$VERSION" ]]; then
     echo "Release version must match app version $VERSION." >&2
     exit 1
 fi
-if [[ -n ${STEAM_VERSION:-} && ! $STEAM_VERSION =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
-    echo 'Enter a numeric Steam version, for example 1791918634.' >&2
+PROFILE_BUILD=$(/usr/bin/plutil -extract steam_build raw -o - out/OnlineFixManager.app/Contents/Resources/runtime/1791918634.json)
+if [[ ${STEAM_VERSION:-$PROFILE_BUILD} != "$PROFILE_BUILD" ]]; then
+    echo "Target Steam version must match bundled profile build $PROFILE_BUILD." >&2
     exit 1
 fi
+STEAM_VERSION=$PROFILE_BUILD
 if [[ ${GITHUB_REF_TYPE:-} == tag && ${GITHUB_REF_NAME:-} != "v$VERSION" ]]; then
     echo "Tag must match app version v$VERSION." >&2
     exit 1

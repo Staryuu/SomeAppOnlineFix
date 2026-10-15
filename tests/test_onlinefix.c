@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "../src/onlinefix.h"
 
@@ -145,6 +146,41 @@ int main(void) {
     assert(!match(code, sizeof(code), "0"));
     assert(!match(code, sizeof(code), "0506"));
     assert(!match(code, sizeof(code), "02 03 04"));
+    char client_directory[] = "/tmp/onlinefix-client-XXXXXX";
+    assert(mkdtemp(client_directory));
+    char client[PATH_MAX], package[PATH_MAX], manifest[PATH_MAX];
+    snprintf(client, sizeof(client), "%s/steamclient.dylib", client_directory);
+    snprintf(package, sizeof(package), "%s/package", client_directory);
+    snprintf(manifest, sizeof(manifest), "%s/package/steam_client_osx.manifest", client_directory);
+    assert(mkdir(package, 0700) == 0);
+    cJSON *profile = cJSON_Parse("{\"steam_build\":1791918634}");
+    assert(profile && !client_matches(profile, client));
+    const char *invalid_builds[] = {
+        "{}", "\"version\" \"1791918635\"", "\"version\" \"1791918634.0\"",
+        "\"version\" \"unknown\"", "\"version\" \"1791918634\" \"version\" \"1791918634\"",
+        "\"version\" \"1791918634", "\"version\" \"4294967296\""
+    };
+    for (size_t i = 0; i < sizeof(invalid_builds) / sizeof(invalid_builds[0]); ++i) {
+        write_config(manifest, invalid_builds[i]);
+        assert(!client_matches(profile, client));
+    }
+    write_config(manifest, "\"osx\" {\n\t\"version\"\t\"1791918634\"\n}");
+    assert(client_matches(profile, client));
+    write_config(client, "different client bytes, same build");
+    assert(client_matches(profile, client));
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(profile, "steam_build"), 1.5);
+    assert(!client_matches(profile, client));
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(profile, "steam_build"), 1791918634);
+    cJSON_DeleteItemFromObjectCaseSensitive(profile, "steam_build");
+    assert(!client_matches(profile, client));
+    cJSON_Delete(profile);
+    assert(unlink(manifest) == 0);
+    profile = cJSON_Parse("{\"steam_build\":1791918634}");
+    assert(!client_matches(profile, client));
+    cJSON_Delete(profile);
+    assert(unlink(client) == 0);
+    assert(rmdir(package) == 0);
+    assert(rmdir(client_directory) == 0);
     uint64_t game = 105600;
     of_start("game -onlinefix", &game);
     assert(game == 480 && of_session().game == 105600);

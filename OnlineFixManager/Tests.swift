@@ -6,7 +6,12 @@ import Foundation
         let temporary = fm.temporaryDirectory.appendingPathComponent("OnlineFix-checks-\(UUID().uuidString)")
         try fm.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: temporary) }
-        let resources = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        let bundledResources = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        let resources = temporary.appendingPathComponent("runtime-fixture")
+        try fm.copyItem(at: bundledResources, to: resources)
+        let profileURL = resources.appendingPathComponent("1791918634.json")
+        var profile = try JSONSerialization.jsonObject(with: Data(contentsOf: profileURL)) as! [String: Any]
+        let clientData = Data("supported Steam client fixture".utf8)
         let sharedFixture = URL(fileURLWithPath: CommandLine.arguments[2])
         let files = ManagerFiles(directory: temporary.appendingPathComponent("settings"))
         try check(files.load().isEmpty)
@@ -136,14 +141,38 @@ import Foundation
         var installer = SteamInstaller(app: app, files: files, resources: resources)
         installer.registerWithLaunchServices = false // Never register the fixture as the user's Steam.
         precondition(!installer.isInstalled())
-        try installer.install()
+        let client = root.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib")
+        try expectFailure { try installer.install(steamRoot: root) }
+        try fm.createDirectory(at: client.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try clientData.write(to: client)
+        // A client without build metadata must not be installed.
+        try expectFailure { try installer.install(steamRoot: root) }
+        let buildManifest = client.deletingLastPathComponent().appendingPathComponent("package/steam_client_osx.manifest")
+        try fm.createDirectory(at: buildManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for invalidVersion in [#""version" "1791918635""#, #""version" "1791918634.0""#,
+                               #""version" "1791918634" "version" "1791918634""#, #""version" "unknown""#, "{}"] {
+            try Data(invalidVersion.utf8).write(to: buildManifest)
+            try expectFailure { try installer.install(steamRoot: root) }
+        }
+        precondition(!fm.fileExists(atPath: files.directory.appendingPathComponent("backup").path))
+        precondition(!fm.fileExists(atPath: files.directory.appendingPathComponent("installation.json").path))
+        try check(Data(contentsOf: plist) == originalInfo)
+        try Data(#""osx" { "version" "1791918634" }"#.utf8).write(to: buildManifest)
+        profile.removeValue(forKey: "steam_build")
+        try JSONSerialization.data(withJSONObject: profile).write(to: profileURL)
+        try expectFailure { try installer.install(steamRoot: root) }
+        profile["steam_build"] = 1791918634
+        try JSONSerialization.data(withJSONObject: profile).write(to: profileURL)
+        // Different client bytes with the same build are accepted; runtime signatures check compatibility.
+        try Data("another laptop's client bytes".utf8).write(to: client)
+        try installer.install(steamRoot: root)
         precondition(installer.isInstalled())
         let modified = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as! [String: Any]
         let environment = modified["LSEnvironment"] as! [String: String]
         precondition(environment["EXISTING_SETTING"] == "preserved")
         precondition(environment["DYLD_INSERT_LIBRARIES"] == "/tmp/existing.dylib:" + files.runtime.appendingPathComponent("onlinefix.dylib").path)
         precondition(environment["ONLINEFIX_CONFIG"] == files.config.path)
-        try expectFailure { try installer.install() }
+        try expectFailure { try installer.install(steamRoot: root) }
         let changed = app.appendingPathComponent("Contents/Resources/update-marker")
         try Data("updated".utf8).write(to: changed)
         try expectFailure { try installer.uninstall() }
@@ -165,7 +194,12 @@ import Foundation
         var patchedGame = game
         patchedGame.patches.terrariaServerEnvironment = true
         try files.save([patchedGame])
-        try installer.install()
+        // A selected full client bundle must be checked instead of the fallback library.
+        let bundledClient = app.appendingPathComponent("Contents/MacOS/steamclient.dylib")
+        try Data("unsupported bundled client".utf8).write(to: bundledClient)
+        try expectFailure { try installer.install(steamRoot: root) }
+        try fm.removeItem(at: bundledClient)
+        try installer.install(steamRoot: root)
         try expectFailure { try installer.uninstall(steamRoot: temporary.appendingPathComponent("Disconnected library")) }
         precondition(installer.isInstalled())
         try Data((String(decoding: patchedLauncher, as: UTF8.self) + "# changed\n").utf8).write(to: installedLauncher)
@@ -180,7 +214,7 @@ import Foundation
         precondition(!fm.fileExists(atPath: installedLauncherBackup.path))
         try check(files.load() == [game])
         try check(Data(contentsOf: plist) == originalInfo)
-        print("Manager checks passed: config, library scan, Terraria server patch and environment, persistent install, preservation, update guard, automatic patch restoration on uninstall.")
+        print("Manager checks passed: config, library scan, Terraria server patch and environment, Steam build guard, persistent install, preservation, update guard, automatic patch restoration on uninstall.")
     }
 
     static func check(_ value: @autoclosure () throws -> Bool) throws {

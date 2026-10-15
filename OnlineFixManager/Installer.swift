@@ -107,13 +107,39 @@ struct SteamInstaller: Sendable {
         try operation()
     }
 
-    func install() throws {
+    private func verifyClient(steamRoot: URL) throws {
+        struct Profile: Decodable {
+            let steam_build: UInt32
+        }
+        let profile = try JSONDecoder().decode(Profile.self, from: Data(contentsOf: resources.appendingPathComponent("1791918634.json")))
+        guard profile.steam_build > 0 else {
+            throw ManagerError(message: "The bundled Steam compatibility profile is invalid. Rebuild OnlineFix Manager.")
+        }
+        let bundled = app.appendingPathComponent("Contents/MacOS/steamclient.dylib")
+        let client = FileManager.default.fileExists(atPath: bundled.path) ? bundled
+            : steamRoot.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib")
+        let manifest = client.deletingLastPathComponent().appendingPathComponent("package/steam_client_osx.manifest")
+        guard FileManager.default.isReadableFile(atPath: client.path),
+              let data = try? Data(contentsOf: manifest), data.count <= 1024 * 1024,
+              let text = String(data: data, encoding: .utf8), !text.contains("\0") else {
+            throw ManagerError(message: "Cannot verify the Steam client build. Start Steam once to finish its setup, then quit it and retry.")
+        }
+        // shortcut: the manifest may be cached; runtime must also validate every signature against the loaded client.
+        let versions = SteamLibrary.pairs(text).filter { $0.0 == "version" }
+        guard versions.count == 1, versions[0].1 == String(profile.steam_build) else {
+            throw ManagerError(message: "Steam build \(versions.count == 1 ? versions[0].1 : "unknown") does not match supported build \(profile.steam_build). Installation was blocked. Use a compatible OnlineFix release.")
+        }
+    }
+
+    func install(steamRoot: URL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Steam")) throws {
         try locked {
             let fm = FileManager.default
             guard !fm.fileExists(atPath: receipt.path), !fm.fileExists(atPath: backup.path) else {
                 throw ManagerError(message: "An installation or recovery backup already exists. Uninstall OnlineFix before installing another version. Keep the backup if Steam has changed.")
             }
             var properties = try info(at: plist)
+            try verifyClient(steamRoot: steamRoot)
             if !fm.fileExists(atPath: files.config.path) { try files.save([]) }
             _ = try files.load()
             guard fm.isWritableFile(atPath: app.path), fm.isWritableFile(atPath: app.deletingLastPathComponent().path),
@@ -153,6 +179,7 @@ struct SteamInstaller: Sendable {
                 try Self.run("/usr/bin/codesign", ["--force", "--sign", "-", staging.path])
                 try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", staging.path])
                 guard try fingerprint(app) == originalHash else { throw ManagerError(message: "Steam changed during installation. Try again after quitting Steam.") }
+                try verifyClient(steamRoot: steamRoot)
                 let record = Receipt(appPath: app.path, originalHash: originalHash, installedHash: try fingerprint(staging))
                 try JSONEncoder().encode(record).write(to: receipt, options: .atomic)
                 try swap(staging)

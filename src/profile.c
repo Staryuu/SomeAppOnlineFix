@@ -1,12 +1,14 @@
 #include "onlinefix.h"
 #include "../vendor/cJSON.h"
 #include <ctype.h>
+#include <limits.h>
 #include <mach-o/dyld.h>
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static bool code_region(const unsigned char **code, size_t *length) {
+static bool code_region(const unsigned char **code, size_t *length, const char **path) {
     for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
         const char *image = _dyld_get_image_name(i);
         const char *base = image ? strrchr(image, '/') : NULL;
@@ -26,6 +28,7 @@ static bool code_region(const unsigned char **code, size_t *length) {
                         !strncmp(sections[k].segname, "__TEXT", 16)) {
                         *code = (const void *)(sections[k].addr + _dyld_get_image_vmaddr_slide(i));
                         *length = sections[k].size;
+                        *path = image;
                         return true;
                     }
                 }
@@ -73,10 +76,44 @@ static const unsigned char *match(const unsigned char *code, size_t size, const 
     return found;
 }
 
+static bool client_matches(cJSON *root, const char *path) {
+    cJSON *build = cJSON_GetObjectItemCaseSensitive(root, "steam_build");
+    if (!cJSON_IsNumber(build) || build->valuedouble <= 0 || build->valuedouble > UINT32_MAX ||
+        build->valuedouble != (double)(uint32_t)build->valuedouble) return false;
+    const char *slash = strrchr(path, '/');
+    if (!slash || slash - path >= PATH_MAX) return false;
+    char manifest[PATH_MAX], expected[16];
+    int written = snprintf(manifest, sizeof(manifest), "%.*s/package/steam_client_osx.manifest", (int)(slash - path), path);
+    if (written < 0 || (size_t)written >= sizeof(manifest)) return false;
+    snprintf(expected, sizeof(expected), "%u", (uint32_t)build->valuedouble);
+    FILE *file = fopen(manifest, "rb");
+    if (!file) return false;
+    char *raw = calloc(1024 * 1024 + 1, 1);
+    if (!raw) { fclose(file); return false; }
+    size_t length = fread(raw, 1, 1024 * 1024 + 1, file);
+    bool valid = !ferror(file) && length > 0 && length <= 1024 * 1024 && !memchr(raw, '\0', length);
+    fclose(file);
+    regex_t expression;
+    if (valid && regcomp(&expression, "\"version\"[[:space:]]*\"([^\"]*)\"", REG_EXTENDED) == 0) {
+        regmatch_t hit[2];
+        // shortcut: manifests may be cached; of_resolve must also match all signatures in the loaded client.
+        valid = regexec(&expression, raw, 2, hit, 0) == 0;
+        if (valid) {
+            valid = (size_t)(hit[1].rm_eo - hit[1].rm_so) == strlen(expected) &&
+                !memcmp(raw + hit[1].rm_so, expected, strlen(expected)) &&
+                regexec(&expression, raw + hit[0].rm_eo, 0, NULL, 0) == REG_NOMATCH;
+        }
+        regfree(&expression);
+    } else valid = false;
+    free(raw);
+    return valid;
+}
+
 bool of_resolve(const char *profile, const char *const *names, void **addresses, size_t count) {
     const unsigned char *code;
+    const char *client;
     size_t size;
-    if (!profile || !code_region(&code, &size)) return false;
+    if (!profile || !code_region(&code, &size, &client)) return false;
     FILE *file = fopen(profile, "rb");
     if (!file) { of_log("cannot read profile %s", profile); return false; }
     char *raw = malloc(1024 * 1024 + 1);
@@ -87,6 +124,11 @@ bool of_resolve(const char *profile, const char *const *names, void **addresses,
     cJSON *root = valid ? cJSON_ParseWithLength(raw, length) : NULL;
     free(raw);
     if (!root) { of_log("invalid profile: %s", profile); return false; }
+    if (!client_matches(root, client)) {
+        of_log("Steam client build is unsupported or cannot be verified; hooks disabled. Use a compatible OnlineFix release.");
+        cJSON_Delete(root);
+        return false;
+    }
     cJSON *arch = cJSON_GetObjectItemCaseSensitive(root, "arch");
     cJSON *sigs = cJSON_GetObjectItemCaseSensitive(root, "signatures");
     valid = cJSON_IsString(arch) && !strcmp(arch->valuestring, "arm64") && cJSON_IsArray(sigs);
