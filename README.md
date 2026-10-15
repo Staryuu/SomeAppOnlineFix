@@ -87,7 +87,7 @@ function pointer. `onlinefix.c` handles core routing and hook registration.
 | Restore AppID at startup | `identity.c` / `startupAppID` | Replaces reported AppID 480 with the real game ID until networking starts. |
 | Restore overlay AppID | `overlay.c` / `overlayAppID` | Replaces the overlay's AppID 480 with the real game ID in the launch environment. |
 | Restore Steam Input AppID | `input.c` / `inputAppID` | Uses the real game ID instead of 480 when checking Steam Input opt-in, so the game's own controller configuration is used. |
-| Restore stats callback AppID | `stats.c` / `statsAppID` | Replaces AppID 480 with the real game ID in `UserStatsReceived` callbacks. |
+| Restore stats callback AppID | `stats.c` / `statsAppID` | Replaces AppID 480 with the real game ID in `UserStatsReceived` callbacks. (Example Terraria wont launch if this disable)|
 | Server environment fix (Terraria only) | `terraria_server.c` / `terrariaServerEnvironment` | Adds `unset DYLD_INSERT_LIBRARIES STEAM_DYLD_INSERT_LIBRARIES` to the server launcher to clear inherited Steam injection. Saves a backup and restores it when disabled. |
 
 AppID patches default to on, except **Keep real AppID**, which defaults to off.
