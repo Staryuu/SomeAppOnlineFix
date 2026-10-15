@@ -1,6 +1,18 @@
 # OnlineFixMac
 Steam OnlineFix for macOS with a native Manager and per-game patches.
 
+# Q & A
+- Q: What Supported Steam Version
+- A: Curently 1791918634 only
+
+- Q: Does its supported with macsteam
+- A: Yes, if your macsteam support steam version 1791918634 (note: install macsteam first)
+
+- Q: What Games Does it support
+- A: Im only tested Stardew valey, teraria(use server enviroment patch if cant start server) and other not tested yet because i dont have another device or the windows version cant run in crossover
+
+Note: Keep in mind this Onlinefix still in experiment state
+
 ## Build and use
 
 Apple Silicon, macOS 15+. Requires Steam, Xcode Command Line Tools, and CMake.
