@@ -81,16 +81,18 @@ All profiles are included and all supported builds are listed in the release not
 Implementations live in `src/patch/`. Each module owns its hook and original
 function pointer. `onlinefix.c` handles core routing and hook registration.
 
-| Module | Per-game setting |
-| --- | --- |
-| `identity.c` | `startupAppID` |
-| `overlay.c` | `overlayAppID` |
-| `input.c` | `inputAppID` |
-| `stats.c` | `statsAppID` |
-| `terraria_server.c` | `terrariaServerEnvironment` (Terraria only) |
+| Patch | Module / setting | How it works |
+| --- | --- | --- |
+| Keep real AppID | `identity.c` / `keepRealAppID` | Always replaces reported AppID 480 with the real game ID, overriding the startup setting. Matchmaking still uses 480. |
+| Restore AppID at startup | `identity.c` / `startupAppID` | Replaces reported AppID 480 with the real game ID until networking starts. |
+| Restore overlay AppID | `overlay.c` / `overlayAppID` | Replaces the overlay's AppID 480 with the real game ID in the launch environment. |
+| Restore Steam Input AppID | `input.c` / `inputAppID` | Uses the real game ID instead of 480 when checking Steam Input opt-in, so the game's own controller configuration is used. |
+| Restore stats callback AppID | `stats.c` / `statsAppID` | Replaces AppID 480 with the real game ID in `UserStatsReceived` callbacks. |
+| Server environment fix (Terraria only) | `terraria_server.c` / `terrariaServerEnvironment` | Adds `unset DYLD_INSERT_LIBRARIES STEAM_DYLD_INSERT_LIBRARIES` to the server launcher to clear inherited Steam injection. Saves a backup and restores it when disabled. |
 
-AppID patches default to on;
-Settings live in each game's `patches` object in `games.json`.
+AppID patches default to on, except **Keep real AppID**, which defaults to off.
+Settings live in each game's `patches` object in `games.json`, except
+`keepRealAppID`, which is stored directly on the game entry.
 
 For a new patch, add its implementation here, guard it with `OFSession.game`,
 and register its `OFHook` in `onlinefix.c`. Add its toggle to `patch.h`,
