@@ -90,17 +90,9 @@ function pointer. `onlinefix.c` handles core routing and hook registration.
 | Restore stats callback AppID | `stats.c` / `statsAppID` | Replaces AppID 480 with the real game ID in `UserStatsReceived` callbacks. (Example Terraria wont launch if this disable)|
 | Server environment fix (Terraria only) | `terraria_server.c` / `terrariaServerEnvironment` | Adds `unset DYLD_INSERT_LIBRARIES STEAM_DYLD_INSERT_LIBRARIES` to the server launcher to clear inherited Steam injection. Saves a backup and restores it when disabled. |
 
-AppID patches default to on, except **Keep real AppID**, which defaults to off.
-Settings live in each game's `patches` object in `games.json`, except
-`keepRealAppID`, which is stored directly on the game entry.
-
-For a new patch, add its implementation here, guard it with `OFSession.game`,
-and register its `OFHook` in `onlinefix.c`. Add its toggle to `patch.h`,
-`settings.c`, Swift `PatchSettings`, and the settings sheet. Test on/off behavior
-and a different AppID. New `.c` files are built automatically.
-
-Rebuild and reinstall after adding patch code. Toggle changes need a game relaunch.
-Manager applies/restores file patches when saving settings or uninstalling.
+AppID patches are enabled by default, except **Keep real AppID**.
+Change them in **My Games → Patches…**, save, and restart the game.
+Manager backs up files changed by a patch and restores them when you disable it or uninstall OnlineFix.
 
 ## Credits
 
