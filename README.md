@@ -1,7 +1,5 @@
 # OnlineFixMac
-
 Steam OnlineFix for macOS with a native Manager and per-game patches.
-Routes selected games to AppID 480.
 
 ## Build and use
 
@@ -31,18 +29,14 @@ Open **My Games → Patches…** and relaunch after saving.
 | --- | --- | --- |
 | Terraria | Server environment fix | Fixes server startup by clearing inherited Steam injection. |
 
-Only shown for Terraria. Keeps a `.onlinefix-backup`
-disabling or uninstalling
-restores the launcher. 
 Game updates may overwrite the patch.
 
-General AppID patches are available for every game. Try **Keep real AppID** for startup issues.
+General AppID patches are available for every game. Try **real AppID** if have startup issues.
 
 ## Uninstall
 
 Quit Steam → **Installation → Uninstall**.
-Restores Steam and active file patches; keeps your game list and logs.
-Keep the backup. Restoration is blocked if Steam or a patched launcher changed.
+
 
 Settings, backups, and logs:
 
@@ -54,9 +48,9 @@ Settings, backups, and logs:
 
 ## Development
 
-Dylib: `src/`
-Swift app: `OnlineFixManager/`
-Tests: `make test`.
+- Dylib: `src/`,
+- Swift app: `OnlineFixManager/`,
+- Tests: `make test`.
 
 ### Releases
 
