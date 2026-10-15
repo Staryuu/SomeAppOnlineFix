@@ -66,12 +66,14 @@ Settings, backups, and logs:
 
 ### Releases
 
-Open **Actions → Build and release → Run workflow**. Enter the Manager version
+Open **Actions → Build release ZIP → Run workflow**. Enter the Manager version
 (starting at `1.0.0`) and target Steam version. The Manager version must match
 `OnlineFixManager/Info.plist` and an entry in [CHANGELOG.md](CHANGELOG.md).
 
-The manual workflow builds, tests, and publishes the Manager ZIP and SHA-256
-checksum, creating the `vX.Y.Z` tag for the selected commit if needed.
+The workflow builds, tests, and uploads the Manager ZIP as an Actions artifact.
+Download the artifact, extract the release ZIP inside it, and upload that ZIP to
+a release manually. The release ZIP contains only `OnlineFixManager.app`, including
+its required runtime files. No release or tag is created automatically.
 Target Steam version must match one of the bundled signature profiles' `steam_build`.
 All profiles are included and all supported builds are listed in the release notes.
 

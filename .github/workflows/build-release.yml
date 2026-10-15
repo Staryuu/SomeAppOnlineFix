@@ -1,4 +1,4 @@
-name: Build and release
+name: Build release ZIP
 
 on:
   workflow_dispatch:
@@ -43,26 +43,5 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: OnlineFixManager-macos-arm64
-          path: out/release/
+          path: out/release/*.zip
           if-no-files-found: error
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v6
-        with:
-          name: OnlineFixManager-macos-arm64
-          path: release
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_VERSION: ${{ inputs.onlinefix_version }}
-          RELEASE_COMMIT: ${{ github.sha }}
-        run: |
-          gh release create "v$RELEASE_VERSION" release/*.zip release/SHA256SUMS \
-            --target "$RELEASE_COMMIT" --title "OnlineFixManager $RELEASE_VERSION" \
-            --notes-file release/notes.md

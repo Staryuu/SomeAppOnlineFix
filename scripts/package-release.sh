@@ -33,19 +33,7 @@ NOTES=$(cat out/release/notes.md)
 printf 'OnlineFixManager %s.\n\nSupported Steam builds: %s.\n\n%s\n' \
     "$VERSION" "$PROFILE_BUILDS" "$NOTES" > out/release/notes.md
 codesign --verify --deep --strict out/OnlineFixManager.app
-STAGE=$(mktemp -d "$ROOT/out/package-XXXXXX")
-trap 'rm -rf "$STAGE"' EXIT
-mkdir "$STAGE/OnlineFixManager"
-ditto out/OnlineFixManager.app "$STAGE/OnlineFixManager/OnlineFixManager.app"
-cp README.md CHANGELOG.md LICENSE "$STAGE/OnlineFixManager/"
-cp vendor/dobby/LICENSE "$STAGE/OnlineFixManager/Dobby-LICENSE"
-python3 - "$STAGE/OnlineFixManager/cJSON-LICENSE" <<'PY'
-from pathlib import Path
-import sys
-license_text = Path('vendor/cJSON.c').read_text().split('*/', 1)[0] + '*/\n'
-Path(sys.argv[1]).write_text(license_text)
-PY
 ARCHIVE="OnlineFixManager-v$VERSION-macos-arm64.zip"
-ditto -c -k --sequesterRsrc --keepParent "$STAGE/OnlineFixManager" "out/release/$ARCHIVE"
+ditto -c -k --norsrc --keepParent out/OnlineFixManager.app "out/release/$ARCHIVE"
 cd out/release
 shasum -a 256 "$ARCHIVE" > SHA256SUMS
