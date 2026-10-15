@@ -8,12 +8,16 @@ if [[ ${RELEASE_VERSION:-$VERSION} != "$VERSION" ]]; then
     echo "Release version must match app version $VERSION." >&2
     exit 1
 fi
-PROFILE_BUILD=$(/usr/bin/plutil -extract steam_build raw -o - out/OnlineFixManager.app/Contents/Resources/runtime/1791918634.json)
-if [[ ${STEAM_VERSION:-$PROFILE_BUILD} != "$PROFILE_BUILD" ]]; then
-    echo "Target Steam version must match bundled profile build $PROFILE_BUILD." >&2
+PROFILE_BUILDS=""
+for PROFILE in out/OnlineFixManager.app/Contents/Resources/runtime/*.json; do
+    BUILD=$(/usr/bin/plutil -extract steam_build raw -o - "$PROFILE")
+    [[ $BUILD =~ ^[1-9][0-9]*$ && ${PROFILE##*/} == "$BUILD.json" ]] || { echo "Invalid Steam profile: $PROFILE" >&2; exit 1; }
+    PROFILE_BUILDS="${PROFILE_BUILDS:+$PROFILE_BUILDS }$BUILD"
+done
+if [[ -n ${STEAM_VERSION:-} && " $PROFILE_BUILDS " != *" $STEAM_VERSION "* ]]; then
+    echo "Target Steam version must be a bundled build: $PROFILE_BUILDS." >&2
     exit 1
 fi
-STEAM_VERSION=$PROFILE_BUILD
 if [[ ${GITHUB_REF_TYPE:-} == tag && ${GITHUB_REF_NAME:-} != "v$VERSION" ]]; then
     echo "Tag must match app version v$VERSION." >&2
     exit 1
@@ -25,11 +29,9 @@ awk -v heading="## v$VERSION" '
     found { print }
 ' CHANGELOG.md > out/release/notes.md
 [[ -s out/release/notes.md ]] || { echo "Missing changelog for v$VERSION." >&2; exit 1; }
-if [[ -n ${STEAM_VERSION:-} ]]; then
-    NOTES=$(cat out/release/notes.md)
-    printf 'OnlineFixManager %s.\n\nTarget Steam version: `%s`.\n\n%s\n' \
-        "$VERSION" "$STEAM_VERSION" "$NOTES" > out/release/notes.md
-fi
+NOTES=$(cat out/release/notes.md)
+printf 'OnlineFixManager %s.\n\nSupported Steam builds: %s.\n\n%s\n' \
+    "$VERSION" "$PROFILE_BUILDS" "$NOTES" > out/release/notes.md
 codesign --verify --deep --strict out/OnlineFixManager.app
 STAGE=$(mktemp -d "$ROOT/out/package-XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT

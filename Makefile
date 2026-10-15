@@ -16,11 +16,13 @@ MANAGER_SOURCES := $(filter-out OnlineFixManager/Tests.swift,$(wildcard OnlineFi
 SWIFTFLAGS := -target arm64-apple-macos$(MIN_VER) -swift-version 6 -O -g -parse-as-library -module-cache-path out/swift-module-cache
 SWIFTFLAGS += -import-objc-header src/patch/terraria_server.h
 TERRARIA_PATCH_OBJ := out/src/patch/terraria_server.o
+PROFILES := $(wildcard signatures/macos.arm64/*.json)
 
-out/manager.stamp: $(MANAGER_SOURCES) OnlineFixManager/Info.plist out/onlinefix.dylib signatures/macos.arm64/1791918634.json $(TERRARIA_PATCH_OBJ)
+out/manager.stamp: $(MANAGER_SOURCES) OnlineFixManager/Info.plist out/onlinefix.dylib $(PROFILES) $(TERRARIA_PATCH_OBJ)
 	@mkdir -p out/OnlineFixManager.app/Contents/MacOS out/OnlineFixManager.app/Contents/Resources/runtime
 	cp OnlineFixManager/Info.plist out/OnlineFixManager.app/Contents/Info.plist
-	cp out/onlinefix.dylib signatures/macos.arm64/1791918634.json out/OnlineFixManager.app/Contents/Resources/runtime/
+	rm -f out/OnlineFixManager.app/Contents/Resources/runtime/*.json
+	cp out/onlinefix.dylib $(PROFILES) out/OnlineFixManager.app/Contents/Resources/runtime/
 	xcrun swiftc $(SWIFTFLAGS) $(MANAGER_SOURCES) $(TERRARIA_PATCH_OBJ) -o out/OnlineFixManager.app/Contents/MacOS/OnlineFixManager
 	codesign --force --sign - out/OnlineFixManager.app
 	@touch $@
@@ -49,7 +51,7 @@ out/onlinefix.dylib: out/onlinefix.arm64.dylib out/onlinefix.x86_64.dylib
 	lipo -create $^ -output $@
 	codesign -fs - $@
 
-out/test_onlinefix: tests/test_onlinefix.c src/session.c src/onlinefix.c src/profile.c src/children.c src/config.c src/onlinefix.h src/ipc.h src/patch/patch.h src/patch/terraria_server.h $(PATCH_SRCS) vendor/cJSON.c vendor/cJSON.h
+out/test_onlinefix: tests/test_onlinefix.c src/session.c src/onlinefix.c src/profile.c src/children.c src/config.c src/onlinefix.h src/ipc.h src/patch/patch.h src/patch/terraria_server.h $(PATCH_SRCS) vendor/cJSON.c vendor/cJSON.h $(PROFILES)
 	@mkdir -p out
 	$(CC) $(CFLAGS) tests/test_onlinefix.c src/session.c src/config.c $(PATCH_SRCS) vendor/cJSON.c -o $@
 

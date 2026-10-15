@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "profile_version": 3,
+  "profile_version": 5,
   "arch": "arm64",
   "platform": "macos",
   "steam_build": 1791918634,
@@ -38,7 +38,7 @@
     },
     {
       "name": "CSteamEngine::PostCallbackToPipe",
-      "aob_hex": "F8 5F BC A9 F6 57 01 A9 F4 4F 02 A9 FD 7B 03 A9 FD C3 00 91 F3 03 05 AA F4 03 04 AA F5 03 03 AA F6 03 02 AA ?? ?? ?? ?? F7 03 00 AA E0 00 00 B4 E0 03 17 AA E1 03 16 AA E2 03 15 AA E3 03 14 AA E4 03 13 AA ?? ?? ?? ?? FF 02 00 F1 E0 07 9F 1A FD 7B 43 A9 F4 4F 42 A9 F6 57 41 A9 F8 5F C4 A8 C0 03 5F D6",
+      "aob_hex": "F8 5F BC A9 F6 57 01 A9 F4 4F 02 A9 FD 7B 03 A9 FD C3 00 91 F3 03 05 AA F4 03 04 AA F5 03 03 AA F6 03 02 AA 13 D8 DA 97 F7 03 00 AA E0 00 00 B4 E0 03 17 AA E1 03 16 AA E2 03 15 AA E3 03 14 AA E4 03 13 AA 37 02 DB 97 FF 02 00 F1 E0 07 9F 1A FD 7B 43 A9 F4 4F 42 A9 F6 57 41 A9 F8 5F C4 A8 C0 03 5F D6",
       "match_offset": 0
     }
   ]

@@ -163,6 +163,12 @@ import Foundation
         try expectFailure { try installer.install(steamRoot: root) }
         profile["steam_build"] = 1791918634
         try JSONSerialization.data(withJSONObject: profile).write(to: profileURL)
+        try check(installer.verifyClient(steamRoot: root) == 1791918634)
+        profile["steam_build"] = 1788652215
+        try JSONSerialization.data(withJSONObject: profile).write(to: profileURL)
+        try expectFailure { try installer.install(steamRoot: root) }
+        profile["steam_build"] = 1791918634
+        try JSONSerialization.data(withJSONObject: profile).write(to: profileURL)
         // Different client bytes with the same build are accepted; runtime signatures check compatibility.
         try Data("another laptop's client bytes".utf8).write(to: client)
         try installer.install(steamRoot: root)
@@ -172,6 +178,7 @@ import Foundation
         precondition(environment["EXISTING_SETTING"] == "preserved")
         precondition(environment["DYLD_INSERT_LIBRARIES"] == "/tmp/existing.dylib:" + files.runtime.appendingPathComponent("onlinefix.dylib").path)
         precondition(environment["ONLINEFIX_CONFIG"] == files.config.path)
+        precondition(environment["ONLINEFIX_SIG"] == files.runtime.path)
         try expectFailure { try installer.install(steamRoot: root) }
         let changed = app.appendingPathComponent("Contents/Resources/update-marker")
         try Data("updated".utf8).write(to: changed)
@@ -184,6 +191,12 @@ import Foundation
         try check(Data(contentsOf: app.appendingPathComponent("Contents/MacOS/steam_osx")) == originalExecutable)
         try check(files.load() == [game])
         try SteamInstaller.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
+
+        try Data(#""osx" { "version" "1788652215" }"#.utf8).write(to: buildManifest)
+        try expectFailure { try installer.install(steamRoot: root) }
+        precondition(!installer.isInstalled())
+        precondition(!fm.fileExists(atPath: resources.appendingPathComponent("1788652215.json").path))
+        try Data(#""osx" { "version" "1791918634" }"#.utf8).write(to: buildManifest)
 
         let installedLauncher = root.appendingPathComponent("steamapps/common/Terraria/Terraria.app/Contents/MacOS/TerrariaServer")
         let installedLauncherBackup = URL(fileURLWithPath: installedLauncher.path + ".onlinefix-backup")

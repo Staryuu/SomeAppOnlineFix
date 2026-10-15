@@ -9,7 +9,7 @@ on:
         default: '1.0.0'
         type: string
       steam_version:
-        description: 'Target Steam version (included in the release description)'
+        description: 'A supported Steam build to validate (all bundled profiles are included)'
         required: true
         default: '1791918634'
         type: string

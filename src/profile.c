@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 static bool code_region(const unsigned char **code, size_t *length, const char **path) {
     for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
@@ -76,20 +77,17 @@ static const unsigned char *match(const unsigned char *code, size_t size, const 
     return found;
 }
 
-static bool client_matches(cJSON *root, const char *path) {
-    cJSON *build = cJSON_GetObjectItemCaseSensitive(root, "steam_build");
-    if (!cJSON_IsNumber(build) || build->valuedouble <= 0 || build->valuedouble > UINT32_MAX ||
-        build->valuedouble != (double)(uint32_t)build->valuedouble) return false;
+static uint32_t client_build(const char *path) {
     const char *slash = strrchr(path, '/');
-    if (!slash || slash - path >= PATH_MAX) return false;
-    char manifest[PATH_MAX], expected[16];
+    if (!slash || slash - path >= PATH_MAX) return 0;
+    char manifest[PATH_MAX], version[11] = {0};
+    uint64_t build = 0;
     int written = snprintf(manifest, sizeof(manifest), "%.*s/package/steam_client_osx.manifest", (int)(slash - path), path);
-    if (written < 0 || (size_t)written >= sizeof(manifest)) return false;
-    snprintf(expected, sizeof(expected), "%u", (uint32_t)build->valuedouble);
+    if (written < 0 || (size_t)written >= sizeof(manifest)) return 0;
     FILE *file = fopen(manifest, "rb");
-    if (!file) return false;
+    if (!file) return 0;
     char *raw = calloc(1024 * 1024 + 1, 1);
-    if (!raw) { fclose(file); return false; }
+    if (!raw) { fclose(file); return 0; }
     size_t length = fread(raw, 1, 1024 * 1024 + 1, file);
     bool valid = !ferror(file) && length > 0 && length <= 1024 * 1024 && !memchr(raw, '\0', length);
     fclose(file);
@@ -99,39 +97,59 @@ static bool client_matches(cJSON *root, const char *path) {
         // shortcut: manifests may be cached; of_resolve must also match all signatures in the loaded client.
         valid = regexec(&expression, raw, 2, hit, 0) == 0;
         if (valid) {
-            valid = (size_t)(hit[1].rm_eo - hit[1].rm_so) == strlen(expected) &&
-                !memcmp(raw + hit[1].rm_so, expected, strlen(expected)) &&
+            size_t digits = (size_t)(hit[1].rm_eo - hit[1].rm_so);
+            valid = digits > 0 && digits < sizeof(version) && raw[hit[1].rm_so] != '0' &&
                 regexec(&expression, raw + hit[0].rm_eo, 0, NULL, 0) == REG_NOMATCH;
+            for (size_t i = 0; valid && i < digits; ++i) {
+                char digit = raw[hit[1].rm_so + i];
+                valid = digit >= '0' && digit <= '9';
+            }
+            if (valid) {
+                memcpy(version, raw + hit[1].rm_so, digits);
+                build = strtoull(version, NULL, 10);
+                valid = build > 0 && build <= UINT32_MAX;
+            }
         }
         regfree(&expression);
     } else valid = false;
     free(raw);
-    return valid;
+    return valid ? (uint32_t)build : 0;
 }
 
-bool of_resolve(const char *profile, const char *const *names, void **addresses, size_t count) {
-    const unsigned char *code;
-    const char *client;
-    size_t size;
-    if (!profile || !code_region(&code, &size, &client)) return false;
+static cJSON *load_profile(const char *location, uint32_t build) {
+    struct stat info;
+    if (!location || !build || stat(location, &info)) return NULL;
+    char path[PATH_MAX];
+    const char *profile = location;
+    if (S_ISDIR(info.st_mode)) {
+        int length = snprintf(path, sizeof(path), "%s/%u.json", location, build);
+        if (length < 0 || (size_t)length >= sizeof(path)) return NULL;
+        profile = path;
+    }
     FILE *file = fopen(profile, "rb");
-    if (!file) { of_log("cannot read profile %s", profile); return false; }
+    if (!file) { of_log("no signature profile for Steam build %u: %s", build, profile); return NULL; }
     char *raw = malloc(1024 * 1024 + 1);
-    if (!raw) { fclose(file); return false; }
+    if (!raw) { fclose(file); return NULL; }
     size_t length = fread(raw, 1, 1024 * 1024 + 1, file);
     bool valid = !ferror(file) && length > 0 && length <= 1024 * 1024;
     fclose(file);
     cJSON *root = valid ? cJSON_ParseWithLength(raw, length) : NULL;
     free(raw);
-    if (!root) { of_log("invalid profile: %s", profile); return false; }
-    if (!client_matches(root, client)) {
-        of_log("Steam client build is unsupported or cannot be verified; hooks disabled. Use a compatible OnlineFix release.");
+    cJSON *version = cJSON_GetObjectItemCaseSensitive(root, "steam_build");
+    if (!cJSON_IsNumber(version) || version->valuedouble != (double)build) {
+        of_log("invalid or mismatched profile for Steam build %u: %s", build, profile);
         cJSON_Delete(root);
-        return false;
+        return NULL;
     }
+    of_log("selected Steam build %u profile: %s", build, profile);
+    return root;
+}
+
+static bool resolve_targets(cJSON *root, const unsigned char *code, size_t size,
+                            const char *const *names, void **addresses, size_t count) {
     cJSON *arch = cJSON_GetObjectItemCaseSensitive(root, "arch");
     cJSON *sigs = cJSON_GetObjectItemCaseSensitive(root, "signatures");
-    valid = cJSON_IsString(arch) && !strcmp(arch->valuestring, "arm64") && cJSON_IsArray(sigs);
+    bool valid = cJSON_IsString(arch) && !strcmp(arch->valuestring, "arm64") && cJSON_IsArray(sigs);
     for (size_t i = 0; valid && i < count; ++i) {
         cJSON *entry, *selected = NULL;
         cJSON_ArrayForEach(entry, sigs) {
@@ -153,6 +171,18 @@ bool of_resolve(const char *profile, const char *const *names, void **addresses,
         addresses[i] = (void *)(hit - (size_t)adjustment);
         for (size_t j = 0; j < i; ++j) if (addresses[j] == addresses[i]) valid = false;
     }
+    return valid;
+}
+
+bool of_resolve(const char *profile, const char *const *names, void **addresses, size_t count) {
+    const unsigned char *code;
+    const char *client;
+    size_t size;
+    if (!profile || !code_region(&code, &size, &client)) return false;
+    uint32_t build = client_build(client);
+    cJSON *root = load_profile(profile, build);
+    if (!root) { of_log("Steam build is unknown or unsupported; routing disabled"); return false; }
+    bool valid = resolve_targets(root, code, size, names, addresses, count);
     cJSON_Delete(root);
     return valid;
 }

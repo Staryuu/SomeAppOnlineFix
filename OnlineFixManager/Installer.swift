@@ -107,13 +107,9 @@ struct SteamInstaller: Sendable {
         try operation()
     }
 
-    private func verifyClient(steamRoot: URL) throws {
+    @discardableResult func verifyClient(steamRoot: URL) throws -> UInt32 {
         struct Profile: Decodable {
             let steam_build: UInt32
-        }
-        let profile = try JSONDecoder().decode(Profile.self, from: Data(contentsOf: resources.appendingPathComponent("1791918634.json")))
-        guard profile.steam_build > 0 else {
-            throw ManagerError(message: "The bundled Steam compatibility profile is invalid. Rebuild OnlineFix Manager.")
         }
         let bundled = app.appendingPathComponent("Contents/MacOS/steamclient.dylib")
         let client = FileManager.default.fileExists(atPath: bundled.path) ? bundled
@@ -126,9 +122,19 @@ struct SteamInstaller: Sendable {
         }
         // shortcut: the manifest may be cached; runtime must also validate every signature against the loaded client.
         let versions = SteamLibrary.pairs(text).filter { $0.0 == "version" }
-        guard versions.count == 1, versions[0].1 == String(profile.steam_build) else {
-            throw ManagerError(message: "Steam build \(versions.count == 1 ? versions[0].1 : "unknown") does not match supported build \(profile.steam_build). Installation was blocked. Use a compatible OnlineFix release.")
+        guard versions.count == 1, let build = UInt32(versions[0].1), build > 0,
+              versions[0].1 == String(build) else {
+            throw ManagerError(message: "Cannot determine a valid Steam client build. Installation was blocked.")
         }
+        let profileURL = resources.appendingPathComponent("\(build).json")
+        guard FileManager.default.fileExists(atPath: profileURL.path) else {
+            throw ManagerError(message: "Steam build \(build) is not supported by this OnlineFix release. Installation was blocked.")
+        }
+        let profile = try JSONDecoder().decode(Profile.self, from: Data(contentsOf: profileURL))
+        guard profile.steam_build == build else {
+            throw ManagerError(message: "The bundled Steam compatibility profile does not match its filename. Rebuild OnlineFix Manager.")
+        }
+        return build
     }
 
     func install(steamRoot: URL = FileManager.default.homeDirectoryForCurrentUser
@@ -139,7 +145,7 @@ struct SteamInstaller: Sendable {
                 throw ManagerError(message: "An installation or recovery backup already exists. Uninstall OnlineFix before installing another version. Keep the backup if Steam has changed.")
             }
             var properties = try info(at: plist)
-            try verifyClient(steamRoot: steamRoot)
+            let build = try verifyClient(steamRoot: steamRoot)
             if !fm.fileExists(atPath: files.config.path) { try files.save([]) }
             _ = try files.load()
             guard fm.isWritableFile(atPath: app.path), fm.isWritableFile(atPath: app.deletingLastPathComponent().path),
@@ -148,9 +154,6 @@ struct SteamInstaller: Sendable {
             }
             try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
             let source = resources.appendingPathComponent("onlinefix.dylib")
-            guard fm.fileExists(atPath: resources.appendingPathComponent("1791918634.json").path) else {
-                throw ManagerError(message: "The bundled signature profile is missing. Rebuild OnlineFix Manager.")
-            }
             try Self.run("/usr/bin/lipo", [source.path, "-verify_arch", "arm64"])
             try Self.run("/usr/bin/lipo", [source.path, "-verify_arch", "x86_64"])
             try Self.run("/usr/bin/codesign", ["--verify", "--strict", source.path])
@@ -171,7 +174,7 @@ struct SteamInstaller: Sendable {
                 environment["DYLD_INSERT_LIBRARIES"] = libraries.joined(separator: ":")
                 environment["ONLINEFIX_CONFIG"] = files.config.path
                 environment["ONLINEFIX_LOG"] = files.log.path
-                environment["ONLINEFIX_SIG"] = files.runtime.appendingPathComponent("1791918634.json").path
+                environment["ONLINEFIX_SIG"] = files.runtime.path
                 properties["LSEnvironment"] = environment
                 let data = try PropertyListSerialization.data(fromPropertyList: properties, format: .xml, options: 0)
                 try data.write(to: staging.appendingPathComponent("Contents/Info.plist"), options: .atomic)
@@ -179,7 +182,9 @@ struct SteamInstaller: Sendable {
                 try Self.run("/usr/bin/codesign", ["--force", "--sign", "-", staging.path])
                 try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", staging.path])
                 guard try fingerprint(app) == originalHash else { throw ManagerError(message: "Steam changed during installation. Try again after quitting Steam.") }
-                try verifyClient(steamRoot: steamRoot)
+                guard try verifyClient(steamRoot: steamRoot) == build else {
+                    throw ManagerError(message: "Steam changed builds during installation. Quit Steam and retry.")
+                }
                 let record = Receipt(appPath: app.path, originalHash: originalHash, installedHash: try fingerprint(staging))
                 try JSONEncoder().encode(record).write(to: receipt, options: .atomic)
                 try swap(staging)

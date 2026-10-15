@@ -14,7 +14,7 @@ fi
 [[ -f $ROOT/out/onlinefix.dylib ]] || fail 'Run make first.'
 [[ -z ${DYLD_INSERT_LIBRARIES:-} ]] || fail 'Unset DYLD_INSERT_LIBRARIES before launching standalone OnlineFix.'
 [[ $ROOT != *:* ]] || fail 'Project path cannot contain a colon.'
-export ONLINEFIX_SIG=${ONLINEFIX_SIG:-"$ROOT/signatures/macos.arm64/1791918634.json"}
+export ONLINEFIX_SIG=${ONLINEFIX_SIG:-"$ROOT/signatures/macos.arm64"}
 [[ -r $ONLINEFIX_SIG ]] || fail "Cannot read signature profile: $ONLINEFIX_SIG"
 export ONLINEFIX_LOG=${ONLINEFIX_LOG:-"$ROOT/out/onlinefix.log"}
 CONFIG_DEFAULT="$HOME/Library/Application Support/OnlineFixManager/games.json"

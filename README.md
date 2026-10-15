@@ -60,7 +60,8 @@ Open **Actions → Build and release → Run workflow**. Enter the Manager versi
 
 The manual workflow builds, tests, and publishes the Manager ZIP and SHA-256
 checksum, creating the `vX.Y.Z` tag for the selected commit if needed.
-Target Steam version must match the bundled signature profile's `steam_build`.
+Target Steam version must match one of the bundled signature profiles' `steam_build`.
+All profiles are included and all supported builds are listed in the release notes.
 
 
 ### Game patches

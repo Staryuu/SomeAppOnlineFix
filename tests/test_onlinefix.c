@@ -53,7 +53,43 @@ static void write_config(const char *path, const char *json) {
     assert(fclose(file) == 0);
 }
 
+static void check_profiles(void) {
+    assert(!load_profile("signatures/macos.arm64", 1788652215));
+    cJSON *current = load_profile("signatures/macos.arm64", 1791918634);
+    assert(current);
+    const size_t count = sizeof(targets) / sizeof(targets[0]);
+    const char *names[count];
+    void *addresses[count];
+    for (size_t i = 0; i < count; ++i) names[i] = targets[i]->name;
+    cJSON *entry;
+    unsigned char current_sample[4096] = {0};
+    size_t current_size = 0;
+    cJSON_ArrayForEach(entry, cJSON_GetObjectItemCaseSensitive(current, "signatures")) {
+        const char *bytes = cJSON_GetObjectItemCaseSensitive(entry, "aob_hex")->valuestring;
+        assert(!strchr(bytes, '?'));
+        while (*bytes) {
+            if (isspace((unsigned char)*bytes)) { ++bytes; continue; }
+            assert(current_size < sizeof(current_sample) && nibble(bytes[0]) >= 0 && nibble(bytes[1]) >= 0);
+            current_sample[current_size++] = (unsigned char)(nibble(bytes[0]) * 16 + nibble(bytes[1]));
+            bytes += 2;
+        }
+    }
+    assert(resolve_targets(current, current_sample, current_size, names, addresses, count));
+    for (size_t i = 0; i < count; ++i) assert(addresses[i]);
+    current_sample[0] ^= 1;
+    assert(!resolve_targets(current, current_sample, current_size, names, addresses, count));
+    current_sample[0] ^= 1;
+    assert(current_size + 64 <= sizeof(current_sample));
+    memcpy(current_sample + current_size, current_sample, 64);
+    assert(!resolve_targets(current, current_sample, current_size + 64, names, addresses, count));
+    cJSON *signatures = cJSON_GetObjectItemCaseSensitive(current, "signatures");
+    cJSON_DeleteItemFromArray(signatures, cJSON_GetArraySize(signatures) - 1);
+    assert(!resolve_targets(current, current_sample, current_size, names, addresses, count));
+    cJSON_Delete(current);
+}
+
 int main(void) {
+    check_profiles();
     OFDispatch utils_hook = (OFDispatch)of_identity_hook.replacement;
     uint64_t (*input_hook)(void *, uint32_t) = (void *)of_input_hook.replacement;
     int (*callback_hook)(void *, int, int, int, const void *, int) = (void *)of_stats_hook.replacement;
@@ -154,29 +190,32 @@ int main(void) {
     snprintf(manifest, sizeof(manifest), "%s/package/steam_client_osx.manifest", client_directory);
     assert(mkdir(package, 0700) == 0);
     cJSON *profile = cJSON_Parse("{\"steam_build\":1791918634}");
-    assert(profile && !client_matches(profile, client));
+    assert(profile && client_build(client) == 0);
     const char *invalid_builds[] = {
-        "{}", "\"version\" \"1791918635\"", "\"version\" \"1791918634.0\"",
+        "{}", "\"version\" \"01791918634\"", "\"version\" \"1791918634.0\"",
         "\"version\" \"unknown\"", "\"version\" \"1791918634\" \"version\" \"1791918634\"",
         "\"version\" \"1791918634", "\"version\" \"4294967296\""
     };
     for (size_t i = 0; i < sizeof(invalid_builds) / sizeof(invalid_builds[0]); ++i) {
         write_config(manifest, invalid_builds[i]);
-        assert(!client_matches(profile, client));
+        assert(client_build(client) == 0);
     }
     write_config(manifest, "\"osx\" {\n\t\"version\"\t\"1791918634\"\n}");
-    assert(client_matches(profile, client));
+    assert(client_build(client) == 1791918634);
     write_config(client, "different client bytes, same build");
-    assert(client_matches(profile, client));
-    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(profile, "steam_build"), 1.5);
-    assert(!client_matches(profile, client));
-    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(profile, "steam_build"), 1791918634);
-    cJSON_DeleteItemFromObjectCaseSensitive(profile, "steam_build");
-    assert(!client_matches(profile, client));
+    assert(client_build(client) == 1791918634);
     cJSON_Delete(profile);
+    write_config(manifest, "\"version\" \"1788652215\"");
+    assert(client_build(client) == 1788652215);
+    assert(!load_profile("signatures/macos.arm64", client_build(client)));
+    write_config(manifest, "\"version\" \"1791918635\"");
+    assert(client_build(client) == 1791918635);
+    assert(!load_profile("signatures/macos.arm64", client_build(client)));
+    assert(!load_profile("signatures/macos.arm64/1791918634.json", 1788652215));
+    assert(!load_profile("signatures/macos.arm64", 0));
     assert(unlink(manifest) == 0);
     profile = cJSON_Parse("{\"steam_build\":1791918634}");
-    assert(!client_matches(profile, client));
+    assert(client_build(client) == 0);
     cJSON_Delete(profile);
     assert(unlink(client) == 0);
     assert(rmdir(package) == 0);
