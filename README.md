@@ -9,7 +9,7 @@ Steam OnlineFix for macOS with a native Manager and per-game patches.
 - A: Yes, if your macsteam support steam version 1791918634 (note: install macsteam first)
 
 - Q: What Games Does it support
-- A: Im only tested Stardew valey, teraria(use server enviroment patch if cant start server) and other not tested yet because i dont have another device or the windows version cant run in crossover
+- A: Curently im onlty testing humman fall flat and stardew valey (both can play multiplayer), For Terraria and other im not testing it yet because some windows games cant play with onlinefix enabled on crossover
 
 Note: Keep in mind this Onlinefix still in experiment state
 
