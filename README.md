@@ -93,7 +93,30 @@ function pointer. `onlinefix.c` handles core routing and hook registration.
 AppID patches are enabled by default, except **Keep real AppID**.
 Change them in **My Games → Patches…**, save, and restart the game.
 Manager backs up files changed by a patch and restores them when you disable it or uninstall OnlineFix.
+## Contributing
 
+Contributions are welcome!
+
+If you find a bug, have a feature request, or want to improve compatibility with another game, feel free to:
+
+- Open an **Issue** to report bugs, compatibility problems, or suggest improvements.
+- Open a **Pull Request** with fixes, new game patches, or other improvements.
+
+For game-specific patches, please keep implementations inside `src/patch/` and avoid putting game-specific logic directly into the core routing code unless necessary.
+
+When submitting a Pull Request:
+
+1. Make sure the project builds successfully.
+2. Run the test suite with:
+
+   ```bash
+   make test
+   ```
+
+3. Describe what you changed and why.
+4. If the change adds or fixes game compatibility, include the game name, AppID, macOS version, architecture, and any relevant logs or testing results.
+
+Since OnlineFixMac is still experimental, compatibility reports and testing on different games are especially appreciated.
 ## Credits
 
 - [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) / [OpenSteamTool](https://github.com/OpenSteam001/OpenSteamTool) — OnlineFix approach.
