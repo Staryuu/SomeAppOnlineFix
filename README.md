@@ -1,5 +1,5 @@
 # SomeAppOnlineFix
-Still experimental.
+Still experimental. Intel Mac Not supported
 
 ## Disclaimer
 
