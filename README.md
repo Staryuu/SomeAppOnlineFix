@@ -1,4 +1,4 @@
-# OnlineFixMac
+# SomeAppOnlineFix
 
 Reupload because the main account got taken down.
 Still experimental. If you know, you know.
