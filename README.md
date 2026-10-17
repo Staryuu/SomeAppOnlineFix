@@ -1,6 +1,4 @@
 # SomeAppOnlineFix
-
-Reupload because the main account got taken down.
 Still experimental.
 
 ## Requirements
