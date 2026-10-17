@@ -2,6 +2,13 @@ import Foundation
 
 @main struct ManagerChecks {
     static func main() throws {
+        precondition(SteamInstaller.processExists(ProcessInfo.processInfo.processIdentifier))
+        precondition(!SteamInstaller.processExists(0) && !SteamInstaller.processExists(-1))
+        let finished = Process()
+        finished.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try finished.run()
+        finished.waitUntilExit()
+        precondition(!SteamInstaller.processExists(finished.processIdentifier))
         let fm = FileManager.default
         let temporary = fm.temporaryDirectory.appendingPathComponent("OnlineFix-checks-\(UUID().uuidString)")
         try fm.createDirectory(at: temporary, withIntermediateDirectories: true)
@@ -9,6 +16,10 @@ import Foundation
         let bundledResources = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         let resources = temporary.appendingPathComponent("runtime-fixture")
         try fm.copyItem(at: bundledResources, to: resources)
+        let picoApp = temporary.appendingPathComponent("PICO PARK 2/pico_park_2.app")
+        try fm.createDirectory(at: picoApp, withIntermediateDirectories: true)
+        try expectFailure { _ = try SteamInstaller.picoPark2PatchEnabled(app: picoApp) }
+        try expectFailure { try SteamInstaller.setPicoPark2Patch(true, app: picoApp) }
         let profileURL = resources.appendingPathComponent("1791918634.json")
         var profile = try JSONSerialization.jsonObject(with: Data(contentsOf: profileURL)) as! [String: Any]
         let clientData = Data("supported Steam client fixture".utf8)
@@ -19,6 +30,11 @@ import Foundation
         let old = try JSONDecoder().decode(GameConfiguration.self, from: Data(legacy.utf8))
         precondition(old.games[0].patches == PatchSettings())
         precondition(!old.games[0].patches.terrariaServerEnvironment)
+        precondition(!old.games[0].picoPark2Photon)
+        for value in ["null", "\"yes\""] {
+            let invalidPico = "{\"id\":2644470,\"name\":\"PICO PARK 2\",\"keepRealAppID\":false,\"picoPark2Photon\":\(value)}"
+            try expectFailure { _ = try JSONDecoder().decode(ManagedGame.self, from: Data(invalidPico.utf8)) }
+        }
         let partial = try JSONDecoder().decode(PatchSettings.self, from: Data(#"{"statsAppID":false}"#.utf8))
         precondition(partial.startupAppID && partial.overlayAppID && partial.inputAppID && !partial.statsAppID)
         for json in [#"{"statsAppID":"no"}"#, #"{"statsAppID":null}"#, #"{"unknownPatch":true}"#] {
@@ -34,6 +50,13 @@ import Foundation
         var unsupported = ManagedGame(id: 413150, name: "Stardew Valley")
         unsupported.patches.terrariaServerEnvironment = true
         try expectFailure { try files.save([unsupported]) }
+        unsupported.patches.terrariaServerEnvironment = false
+        unsupported.picoPark2Photon = true
+        try expectFailure { try files.save([unsupported]) }
+        var pico = ManagedGame(id: 2644470, name: "PICO PARK 2")
+        pico.picoPark2Photon = true
+        try files.save([pico])
+        try check(files.load() == [pico])
         try files.save([game])
         try check(files.load() == [game])
         let other = ManagedGame(id: 413150, name: "Stardew Valley")
@@ -206,7 +229,11 @@ import Foundation
         try TerrariaServerPatch.setEnabled(true, launcher: installedLauncher)
         var patchedGame = game
         patchedGame.patches.terrariaServerEnvironment = true
-        try files.save([patchedGame])
+        let picoManifest = #""AppState" { "appid" "2644470" "name" "PICO PARK 2" "installdir" "PICO PARK 2" }"#
+        try Data(picoManifest.utf8).write(to: root.appendingPathComponent("steamapps/appmanifest_2644470.acf"))
+        let installedPicoApp = root.appendingPathComponent("steamapps/common/PICO PARK 2/pico_park_2.app")
+        try fm.createDirectory(at: installedPicoApp, withIntermediateDirectories: true)
+        try files.save([patchedGame, pico])
         // A selected full client bundle must be checked instead of the fallback library.
         let bundledClient = app.appendingPathComponent("Contents/MacOS/steamclient.dylib")
         try Data("unsupported bundled client".utf8).write(to: bundledClient)
@@ -218,16 +245,23 @@ import Foundation
         try Data((String(decoding: patchedLauncher, as: UTF8.self) + "# changed\n").utf8).write(to: installedLauncher)
         try expectFailure { try installer.uninstall(steamRoot: root) }
         precondition(installer.isInstalled())
-        try check(files.load() == [patchedGame])
+        try check(files.load() == [patchedGame, pico])
         precondition(fm.fileExists(atPath: installedLauncherBackup.path))
         try patchedLauncher.write(to: installedLauncher)
+        try expectFailure { try installer.uninstall(steamRoot: root) }
+        precondition(installer.isInstalled())
+        try check(files.load() == [patchedGame, pico])
+        try check(Data(contentsOf: installedLauncher) == patchedLauncher)
+        pico.picoPark2Photon = false
+        try files.save([patchedGame, pico])
         try installer.uninstall(steamRoot: root)
         precondition(!installer.isInstalled())
         try check(Data(contentsOf: installedLauncher) == originalLauncher)
         precondition(!fm.fileExists(atPath: installedLauncherBackup.path))
-        try check(files.load() == [game])
+        pico.picoPark2Photon = false
+        try check(files.load() == [game, pico])
         try check(Data(contentsOf: plist) == originalInfo)
-        print("Manager checks passed: config, library scan, Terraria server patch and environment, Steam build guard, persistent install, preservation, update guard, automatic patch restoration on uninstall.")
+        print("Manager checks passed: config, library scan, Terraria patch, PICO PARK 2 native validation, Steam build guard, persistent install, preservation, update guard, game-specific restoration and rollback on uninstall.")
     }
 
     static func check(_ value: @autoclosure () throws -> Bool) throws {

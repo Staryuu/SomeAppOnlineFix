@@ -1,4 +1,5 @@
 import CryptoKit
+import AppKit
 import Darwin
 import Foundation
 
@@ -18,6 +19,11 @@ struct SteamInstaller: Sendable {
         let installedHash: String
     }
 
+    static func processExists(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
+
     static func run(_ executable: String, _ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -35,6 +41,33 @@ struct SteamInstaller: Sendable {
             throw ManagerError(message: String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
                 + "\nCommand failed: \(URL(fileURLWithPath: executable).lastPathComponent)")
         }
+    }
+
+    private static func checkPicoPatch(_ result: Int32) throws {
+        guard result != 0 else { return }
+        let detail: String
+        switch result {
+        case ENOTSUP: detail = "This is not the supported PICO PARK 2 Apple Silicon build."
+        case ESTALE: detail = "Game files or backups changed, or the patch is incomplete. Keep both game backups for recovery."
+        case EWOULDBLOCK: detail = "Another PICO PARK 2 patch operation is running."
+        case EIO: detail = "File writing, signature verification or signing failed. Keep both game backups for recovery."
+        default: detail = String(cString: strerror(result))
+        }
+        throw ManagerError(message: "PICO PARK 2 Photon compatibility fix: \(detail)")
+    }
+
+    static func picoPark2PatchEnabled(app: URL) throws -> Bool {
+        var enabled = false
+        try checkPicoPatch(app.path.withCString { of_pico_park_2_status($0, &enabled) })
+        return enabled
+    }
+
+    static func setPicoPark2Patch(_ enabled: Bool, app: URL) throws {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.tecopark.picopark2")
+            .contains(where: { $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }) else {
+            throw ManagerError(message: "Quit PICO PARK 2 before changing its Photon compatibility patch.")
+        }
+        try checkPicoPatch(app.path.withCString { of_pico_park_2_patch($0, enabled) })
     }
 
     private func info(at url: URL) throws -> [String: Any] {
@@ -219,6 +252,7 @@ struct SteamInstaller: Sendable {
             let games = try files.load()
             var updatedGames = games
             var restoredLauncher: URL?
+            var restoredPicoApp: URL?
             var settingsChanged = false
             var exchanged = false
             let staging = app.deletingLastPathComponent().appendingPathComponent(".OnlineFix-restore-\(UUID().uuidString).app")
@@ -233,6 +267,18 @@ struct SteamInstaller: Sendable {
                     try TerrariaServerPatch.setEnabled(false, launcher: launcher)
                     restoredLauncher = launcher
                     updatedGames[index].patches.terrariaServerEnvironment = false
+                }
+                if let index = games.firstIndex(where: { $0.id == 2644470 && $0.picoPark2Photon }) {
+                    guard let directory = try SteamLibrary.scan(root: steamRoot)
+                        .first(where: { $0.id == 2644470 })?.installDirectory else {
+                        throw ManagerError(message: "Cannot locate PICO PARK 2 to restore its Photon patch. Reconnect its Steam library and retry uninstalling.")
+                    }
+                    let picoApp = directory.appendingPathComponent("pico_park_2.app")
+                    try Self.setPicoPark2Patch(false, app: picoApp)
+                    restoredPicoApp = picoApp
+                    updatedGames[index].picoPark2Photon = false
+                }
+                if updatedGames != games {
                     try files.save(updatedGames)
                     settingsChanged = true
                 }
@@ -243,10 +289,13 @@ struct SteamInstaller: Sendable {
                 let uninstallError = error
                 do {
                     if exchanged { try swap(staging); try? register() }
+                    if let picoApp = restoredPicoApp {
+                        try Self.setPicoPark2Patch(true, app: picoApp)
+                    }
                     if let launcher = restoredLauncher { try TerrariaServerPatch.setEnabled(true, launcher: launcher) }
                     if settingsChanged { try files.save(games) }
                 } catch {
-                    throw ManagerError(message: "Uninstall rollback failed. Keep the Steam backup, \(staging.path), and Terraria's .onlinefix-backup for recovery.\n\(error.localizedDescription)")
+                    throw ManagerError(message: "Uninstall rollback failed. Keep the Steam backup, \(staging.path), and game-specific patch backups for recovery.\n\(error.localizedDescription)")
                 }
                 try? fm.removeItem(at: staging)
                 throw uninstallError

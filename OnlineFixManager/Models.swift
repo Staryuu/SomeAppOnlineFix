@@ -12,6 +12,8 @@ struct ManagedGame: Codable, Identifiable, Equatable {
     var imageURL: URL? = nil
     var patches = PatchSettings()
     var installDirectory: URL? = nil
+    // Keep Manager-only file patches outside Steam's strict runtime patch settings.
+    var picoPark2Photon = false
 
     var artworkURL: URL {
         if let imageURL, imageURL.scheme == "https" { return imageURL }
@@ -45,7 +47,7 @@ extension PatchSettings {
 }
 
 extension ManagedGame {
-    private enum CodingKeys: String, CodingKey { case id, name, keepRealAppID, imageURL, patches, installDirectory }
+    private enum CodingKeys: String, CodingKey { case id, name, keepRealAppID, imageURL, patches, installDirectory, picoPark2Photon }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -55,6 +57,7 @@ extension ManagedGame {
         imageURL = try values.decodeIfPresent(URL.self, forKey: .imageURL)
         patches = values.contains(.patches) ? try values.decode(PatchSettings.self, forKey: .patches) : PatchSettings()
         installDirectory = try values.decodeIfPresent(URL.self, forKey: .installDirectory)
+        picoPark2Photon = values.contains(.picoPark2Photon) ? try values.decode(Bool.self, forKey: .picoPark2Photon) : false
     }
 }
 
@@ -64,7 +67,8 @@ struct GameConfiguration: Codable {
     func validate() throws {
         guard games.allSatisfy({ ManagedGame.validID($0.id) && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
               Set(games.map(\.id)).count == games.count,
-              games.allSatisfy({ !$0.patches.terrariaServerEnvironment || $0.id == 105600 }) else {
+              games.allSatisfy({ !$0.patches.terrariaServerEnvironment || $0.id == 105600 }),
+              games.allSatisfy({ !$0.picoPark2Photon || $0.id == 2644470 }) else {
             throw ManagerError(message: "The game list contains an invalid or duplicate AppID.")
         }
     }

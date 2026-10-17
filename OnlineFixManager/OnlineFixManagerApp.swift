@@ -397,13 +397,29 @@ private struct ManagerView: View {
         let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Steam")
         do { library = try await Task.detached { try SteamLibrary.scan(root: root) }.value }
         catch { self.error = "Cannot scan the Steam library: \(error.localizedDescription)" }
+        if configLoaded, games.contains(where: { $0.id == 2644470 }),
+           let directory = library.first(where: { $0.id == 2644470 })?.installDirectory {
+            let app = directory.appendingPathComponent("pico_park_2.app")
+            do {
+                let enabled = try await Task.detached { try SteamInstaller.picoPark2PatchEnabled(app: app) }.value
+                if let index = games.firstIndex(where: { $0.id == 2644470 }), games[index].picoPark2Photon != enabled {
+                    var updated = games
+                    updated[index].picoPark2Photon = enabled
+                    try files.save(updated)
+                    games = updated
+                }
+            } catch { self.error = "Cannot verify the PICO PARK 2 patch.\n\(error.localizedDescription)" }
+        }
     }
 
     @discardableResult private func save(_ next: [ManagedGame]) -> Bool {
         guard configLoaded else { return false }
         let previous = games.contains { $0.id == 105600 && $0.patches.terrariaServerEnvironment }
         let enabled = next.contains { $0.id == 105600 && $0.patches.terrariaServerEnvironment }
+        let previousPico = games.contains { $0.id == 2644470 && $0.picoPark2Photon }
+        let enabledPico = next.contains { $0.id == 2644470 && $0.picoPark2Photon }
         var changedLauncher: URL?
+        var changedPicoApp: URL?
         do {
             try GameConfiguration(games: next).validate()
             if previous != enabled {
@@ -415,20 +431,36 @@ private struct ManagerView: View {
                     throw ManagerError(message: "Install Terraria and refresh the Steam library before enabling its server fix.")
                 }
             }
-            do { try files.save(next) }
-            catch {
-                let saveError = error
-                if let launcher = changedLauncher {
-                    do { try TerrariaServerPatch.setEnabled(previous, launcher: launcher) }
-                    catch { throw ManagerError(message: "Settings could not be saved and the launcher could not be restored. Keep its .onlinefix-backup file.\n\(error.localizedDescription)") }
+            if previousPico != enabledPico {
+                guard let directory = library.first(where: { $0.id == 2644470 })?.installDirectory
+                    ?? games.first(where: { $0.id == 2644470 })?.installDirectory else {
+                    throw ManagerError(message: "Install PICO PARK 2 and refresh the Steam library before changing its Photon patch.")
                 }
-                throw saveError
+                let app = directory.appendingPathComponent("pico_park_2.app")
+                try SteamInstaller.setPicoPark2Patch(enabledPico, app: app)
+                changedPicoApp = app
             }
+            try files.save(next)
             games = next
             message = "Saved. Relaunch the affected game to apply changes."
             return true
         }
-        catch { self.error = error.localizedDescription; return false }
+        catch {
+            let saveError = error
+            do {
+                if let app = changedPicoApp {
+                    try SteamInstaller.setPicoPark2Patch(previousPico, app: app)
+                }
+                if let launcher = changedLauncher {
+                    try TerrariaServerPatch.setEnabled(previous, launcher: launcher)
+                }
+            } catch {
+                self.error = "Settings could not be saved and a game patch could not be restored. Keep the game-specific patch backups.\n\(error.localizedDescription)"
+                return false
+            }
+            self.error = saveError.localizedDescription
+            return false
+        }
     }
 
     private func add(_ game: ManagedGame) {
@@ -444,8 +476,12 @@ private struct ManagerView: View {
     }
 
     private func modifyInstallation(remove: Bool) {
-        if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == "com.valvesoftware.steam" || $0.executableURL?.lastPathComponent == "steam_osx" }) {
-            error = "Quit Steam before installing or removing OnlineFix."
+        if let steam = NSWorkspace.shared.runningApplications.first(where: {
+            !$0.isTerminated &&
+            ($0.bundleIdentifier == "com.valvesoftware.steam" || $0.executableURL?.lastPathComponent == "steam_osx") &&
+            SteamInstaller.processExists($0.processIdentifier)
+        }) {
+            error = "Steam is still running (PID \(steam.processIdentifier)). Quit Steam before installing or removing OnlineFix."
             return
         }
         let target = installer
@@ -498,21 +534,27 @@ private struct GamePatchView: View {
                     Toggle("Restore stats callback AppID", isOn: $draft.patches.statsAppID)
                         .help("Report the original game ID in UserStatsReceived callbacks.")
                 }
-                if draft.id == 105600 {
-                    Section("Terraria") {
-                        Toggle("Server environment fix", isOn: $draft.patches.terrariaServerEnvironment)
-                        Text("Updates the server launcher to keep Steam injection out of shell helpers. Keeps a backup; disabling restores it.")
-                            .font(.caption).foregroundStyle(.secondary)
+                if draft.id == 105600 || draft.id == 2644470 {
+                    Section("Game Specific Patches") {
+                        if draft.id == 105600 {
+                            Toggle("Server environment fix", isOn: $draft.patches.terrariaServerEnvironment)
+                            Text("Updates the server launcher to keep Steam injection out of shell helpers. Keeps a backup; disabling restores it.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Toggle("Photon compatibility fix", isOn: $draft.picoPark2Photon)
+                            Text("Fixes online room connections for the supported Apple Silicon build. Quit PICO PARK 2 before saving. Keeps backups; disabling restores the original files.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }.formStyle(.grouped)
             Text("Settings apply only to this game. Relaunch it after saving.").font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("Restore Defaults") { draft.patches = PatchSettings(); draft.keepRealAppID = false }
+                Button("Restore Defaults") { draft.patches = PatchSettings(); draft.keepRealAppID = false; draft.picoPark2Photon = false }
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") { if onSave(draft) { dismiss() } }.keyboardShortcut(.defaultAction)
             }
-        }.padding(24).frame(width: 520, height: draft.id == 105600 ? 600 : 490)
+        }.padding(24).frame(width: 520, height: draft.id == 105600 || draft.id == 2644470 ? 600 : 490)
     }
 }
