@@ -23,8 +23,6 @@ Issues and PRs are welcome. Keep changes focused and run `make test` before subm
 For compatibility reports, include the game/AppID, macOS version, Steam build, and relevant logs.
 Game-specific patches belong in `src/patch/`.
 
-Previous documentation: [oldreadme.md](oldreadme.md).
-
 ## Credits
 
 - [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) / [OpenSteamTool](https://github.com/OpenSteam001/OpenSteamTool) — OnlineFix approach.
@@ -34,4 +32,6 @@ Previous documentation: [oldreadme.md](oldreadme.md).
 
 ## License
 
-[AGPL-3.0](LICENSE). Third-party credits and licenses are listed in [oldreadme.md](oldreadme.md#credits).
+- OnlineFixManager — [AGPL-3.0](LICENSE).
+- Dobby — Apache-2.0; `vendor/dobby/LICENSE` after download.
+- cJSON — MIT; included in its source files.
