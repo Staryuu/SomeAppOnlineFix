@@ -1,6 +1,10 @@
 # SomeAppOnlineFix
 Still experimental.
 
+## Disclaimer
+
+This project does not bypass game licensing and still requires a valid, original game license. It is intended for game owners who want to play with people who do not own the game.
+
 ## Requirements
 
 - Apple Silicon, macOS 15+
