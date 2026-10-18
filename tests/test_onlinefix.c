@@ -10,9 +10,16 @@
 void of_log(const char *format, ...) { (void)format; }
 #include "../src/onlinefix.c"
 #include "../src/profile.c"
+static const char *child_image;
+static uint32_t child_image_count(void) { return child_image ? 1 : 0; }
+static const char *child_image_name(uint32_t index) { (void)index; return child_image; }
+#define _dyld_image_count child_image_count
+#define _dyld_get_image_name child_image_name
 #include "../src/children.c"
+#undef _dyld_image_count
+#undef _dyld_get_image_name
 
-static int calls;
+static int calls, symbol_lookups;
 int DobbyHook(void *address, void *handler, void **original) {
     (void)address; (void)handler; (void)original; ++calls; return 0;
 }
@@ -20,7 +27,7 @@ int DobbyInstrument(void *address, dobby_instrument_callback_t handler) {
     (void)address; (void)handler; ++calls; return 0;
 }
 void *DobbySymbolResolver(const char *image, const char *name) {
-    (void)image; (void)name; return NULL;
+    (void)image; (void)name; ++symbol_lookups; return NULL;
 }
 static uint32_t observed;
 static uint32_t record_session(void *engine, uint32_t id, uint8_t update) {
@@ -282,6 +289,18 @@ int main(void) {
     assert(filtered && filtered[0]==environment[0] && filtered[1]==environment[2] && !filtered[2]);
     free(filtered); assert(environment[1]);
     assert(steam_target("/a/steam_osx") && !steam_target("/a/steam_osx_helper"));
+    const char *owners[] = {"/Steam.app/Contents/MacOS/notproton.dylib", "/runtime/macsteam.dylib"};
+    for (size_t i = 0; i < sizeof(owners) / sizeof(owners[0]); ++i) {
+        child_image = owners[i]; symbol_lookups = 0;
+        of_filter_children();
+        assert(symbol_lookups == 0);
+    }
+    child_image = "/notproton/onlinefix.dylib"; symbol_lookups = 0;
+    of_filter_children();
+    assert(symbol_lookups == 3);
+    child_image = NULL; symbol_lookups = 0;
+    of_filter_children();
+    assert(symbol_lookups == 3);
     of_ready=false; calls=0;
     assert(!of_install("/nonexistent") && !of_ready && calls==0);
     puts("OnlineFix checks passed");

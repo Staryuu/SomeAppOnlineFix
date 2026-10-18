@@ -2,6 +2,7 @@
 #include <dobby.h>
 #include <crt_externs.h>
 #include <errno.h>
+#include <mach-o/dyld.h>
 #include <spawn.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,13 @@ static int (*real_execve)(const char *, char *const [], char *const []);
 static int (*real_execv)(const char *, char *const []);
 static int (*real_spawn)(pid_t *, const char *, const posix_spawn_file_actions_t *,
                          const posix_spawnattr_t *, char *const [], char *const []);
+
+static bool child_filter_owner(const char *path) {
+    if (!path) return false;
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    return !strcmp(base, "macsteam.dylib") || !strcmp(base, "notproton.dylib");
+}
 
 static bool steam_target(const char *path) {
     if (!path) return false;
@@ -58,6 +66,14 @@ static int spawn_child(pid_t *pid, const char *path, const posix_spawn_file_acti
 }
 
 void of_filter_children(void) {
+    for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
+        const char *image = _dyld_get_image_name(i);
+        if (child_filter_owner(image)) {
+            // NotProton also restores its insert for Steam Helper; a second filter would strip it.
+            of_log("child environment filtering handled by %s", image);
+            return;
+        }
+    }
     struct { const char *name; void *handler; void **original; } hooks[] = {
         {"execve", (void *)execute, (void **)&real_execve},
         {"execv", (void *)execute_inherited, (void **)&real_execv},

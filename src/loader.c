@@ -48,15 +48,8 @@ __attribute__((constructor)) static void bootstrap(void) {
     const char *path = getenv("ONLINEFIX_LOG");
     if (path && *path) logfile = fopen(path, "w");
     of_log("Steam launch: new log session");
-    bool macsteam = false;
-    for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
-        const char *image = _dyld_get_image_name(i);
-        if (image && strstr(image, "macsteam") && strstr(image, ".dylib")) {
-            macsteam = true;
-        }
-    }
     if (getenv("ONLINEFIX_DISABLE")) { of_log("disabled by ONLINEFIX_DISABLE"); return; }
-    if (!macsteam) of_filter_children();
+    of_filter_children();
     pthread_t thread;
     int error = pthread_create(&thread, NULL, worker, NULL);
     if (error) of_log("cannot start loader: %d", error);
