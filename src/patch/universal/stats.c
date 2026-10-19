@@ -21,7 +21,7 @@ static int callback_hook(void *engine, int pipe, int user, int kind, const void 
         payload = local;
         of_log("stats callback: 480 -> %u pipe=%d", s.game, pipe);
     }
-    // Steam copies callback bytes synchronously into its queue.
+    // Steam copies this payload before the stack buffer goes out of scope.
     return callback_original(engine, pipe, user, kind, payload, size);
 }
 

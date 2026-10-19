@@ -5,6 +5,15 @@ struct ManagerError: LocalizedError {
     var errorDescription: String? { message }
 }
 
+struct RepoPhotonIDs: Codable, Equatable, Sendable {
+    var realtime = ""
+    var voice = ""
+    var isEmpty: Bool { realtime.isEmpty && voice.isEmpty }
+    var isValid: Bool {
+        realtime.withCString { pun in voice.withCString { of_repo_validate_ids(pun, $0) } }
+    }
+}
+
 struct ManagedGame: Codable, Identifiable, Equatable {
     let id: UInt32
     var name: String
@@ -15,16 +24,22 @@ struct ManagedGame: Codable, Identifiable, Equatable {
     // Keep Manager-only file patches outside Steam's strict runtime patch settings.
     var picoPark2Photon = false
     var phasmophobiaPhotonAppID = ""
+    var repoPhoton = RepoPhotonIDs()
 
     static let fileFixCatalog = [
         ManagedGame(id: 105600, name: "Terraria"),
         ManagedGame(id: 2644470, name: "PICO PARK 2"),
-        ManagedGame(id: 739630, name: "Phasmophobia")
+        ManagedGame(id: 739630, name: "Phasmophobia"),
+        ManagedGame(id: 3241660, name: "R.E.P.O.")
     ]
 
     var supportsFileFix: Bool { Self.fileFixCatalog.contains { $0.id == id } }
-    var hasFileFix: Bool { patches.terrariaServerEnvironment || picoPark2Photon || !phasmophobiaPhotonAppID.isEmpty }
+    var hasFileFix: Bool { patches.terrariaServerEnvironment || picoPark2Photon || !phasmophobiaPhotonAppID.isEmpty || !repoPhoton.isEmpty }
     var fileFixInstalled: Bool {
+        if id == 3241660 {
+            guard let installDirectory else { return false }
+            return FileManager.default.fileExists(atPath: installDirectory.appendingPathComponent("REPO_Data/Managed/Assembly-CSharp.dll").path)
+        }
         if id != 739630 { return nativePatchApp != nil }
         guard let installDirectory else { return false }
         return ["GameAssembly.dll", "Phasmophobia_Data/resources.assets", "Phasmophobia_Data/il2cpp_data/Metadata/global-metadata.dat"]
@@ -36,6 +51,7 @@ struct ManagedGame: Codable, Identifiable, Equatable {
         game.patches.terrariaServerEnvironment = false
         game.picoPark2Photon = false
         game.phasmophobiaPhotonAppID = ""
+        game.repoPhoton = RepoPhotonIDs()
         return game
     }
 
@@ -96,7 +112,7 @@ extension PatchSettings {
 }
 
 extension ManagedGame {
-    private enum CodingKeys: String, CodingKey { case id, name, keepRealAppID, imageURL, patches, installDirectory, picoPark2Photon, phasmophobiaPhotonAppID }
+    private enum CodingKeys: String, CodingKey { case id, name, keepRealAppID, imageURL, patches, installDirectory, picoPark2Photon, phasmophobiaPhotonAppID, repoPhoton }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -107,6 +123,7 @@ extension ManagedGame {
         patches = values.contains(.patches) ? try values.decode(PatchSettings.self, forKey: .patches) : PatchSettings()
         installDirectory = try values.decodeIfPresent(URL.self, forKey: .installDirectory)
         picoPark2Photon = values.contains(.picoPark2Photon) ? try values.decode(Bool.self, forKey: .picoPark2Photon) : false
+        repoPhoton = values.contains(.repoPhoton) ? try values.decode(RepoPhotonIDs.self, forKey: .repoPhoton) : RepoPhotonIDs()
         phasmophobiaPhotonAppID = values.contains(.phasmophobiaPhotonAppID) ? try values.decode(String.self, forKey: .phasmophobiaPhotonAppID) : ""
     }
 }
@@ -155,6 +172,7 @@ struct GameConfiguration: Codable, Equatable {
                   Set(list.map(\.id)).count == list.count,
                   list.allSatisfy({ !$0.patches.terrariaServerEnvironment || $0.id == 105600 }),
                   list.allSatisfy({ !$0.picoPark2Photon || $0.id == 2644470 }),
+                  list.allSatisfy({ $0.repoPhoton.isEmpty || ($0.id == 3241660 && $0.repoPhoton.isValid) }),
                   list.allSatisfy({ $0.phasmophobiaPhotonAppID.isEmpty || ($0.id == 739630 && PhasmophobiaPatch.validateAppID($0.phasmophobiaPhotonAppID)) }) else {
                 throw ManagerError(message: "The game or fix list contains invalid settings or duplicate AppIDs.")
             }

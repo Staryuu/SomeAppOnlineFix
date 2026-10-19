@@ -131,6 +131,9 @@ struct ManagerView: View {
         }
         .sheet(item: $fixGame) { game in
             GameFixView(game: game, supportsNativePatch: game.nativePatchApp != nil, onSave: saveFix)
+                .alert("Cannot update fix", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                    Button("OK", role: .cancel) { error = nil }
+                } message: { Text(error ?? "") }
         }
         .onChange(of: selectedPane) { _, pane in searchFocused = pane == .add }
         .task { await reload() }
@@ -141,7 +144,7 @@ struct ManagerView: View {
                 do { try await Task.sleep(for: .seconds(2)) } catch { break }
             }
         }
-        .alert("OnlineFix Manager", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("OnlineFix Manager", isPresented: Binding(get: { error != nil && fixGame == nil }, set: { if !$0 { error = nil } })) {
             Button("OK", role: .cancel) { error = nil }
         } message: { Text(error ?? "") }
     }
@@ -239,14 +242,14 @@ struct ManagerView: View {
     private var fixesPane: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Available fixes").font(.title2.bold())
-            Text("Apply or restore changes to game files. Steam behavior is configured in My Games → Patch.")
+            Text("Fix game files here. Steam settings are in My Games → Patch.")
                 .foregroundStyle(.secondary)
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 16)], alignment: .leading, spacing: 16) {
                     ForEach(fixGames) { game in fixCard(game) }
                 }
             }
-            Text("Browse all supported fixes. Install the game and refresh your library to apply one.")
+            Text("Install a game, then refresh your library.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(24)
@@ -265,7 +268,7 @@ struct ManagerView: View {
                     Text(game.name).font(.headline).lineLimit(1)
                     Text(game.id == 105600 ? "Server environment fix" : "Photon multiplayer fix")
                         .font(.callout).foregroundStyle(.secondary)
-                    Text(game.id == 739630 ? "Windows / NotProton" : "Native macOS")
+                    Text([739630, 3241660].contains(game.id) ? "Windows / NotProton" : "Native macOS")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack {
                         Label(game.fileFixInstalled ? "Installed" : "Not installed",
@@ -428,24 +431,34 @@ struct ManagerView: View {
     }
 
     private func reload() async {
+        var errors: [String] = []
         do {
             let configuration = try files.loadConfiguration()
             games = configuration.games
             fixes = configuration.fixes
             configLoaded = true
-        } catch { configLoaded = false; self.error = "Cannot load games.json. The existing file was not changed.\n\(error.localizedDescription)" }
+        } catch { configLoaded = false; errors.append("Cannot load games.json. The existing file was not changed.\n\(error.localizedDescription)") }
         installed = installer.isInstalled()
         let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Steam")
         do { library = try await Task.detached { try SteamLibrary.scan(root: root) }.value }
-        catch { self.error = "Cannot scan the Steam library: \(error.localizedDescription)" }
+        catch { errors.append("Cannot scan the Steam library: \(error.localizedDescription)") }
         if configLoaded, let game = fixGames.first(where: { $0.id == 2644470 }), let app = game.nativePatchApp {
             do {
-                let enabled = try await Task.detached { try SteamInstaller.picoPark2PatchEnabled(app: app) }.value
+                let enabled = try await Task.detached { try PicoPark2Patch.isEnabled(app: app) }.value
                 var status = fixes.first(where: { $0.id == game.id }) ?? game
                 status.installDirectory = game.installDirectory
                 status.picoPark2Photon = enabled
                 try rememberFix(status)
-            } catch { self.error = "Cannot verify the PICO PARK 2 fix.\n\(error.localizedDescription)" }
+            } catch { errors.append("Cannot verify the PICO PARK 2 fix.\n\(error.localizedDescription)") }
+        }
+        if configLoaded, let game = fixGames.first(where: { $0.id == 3241660 }), let directory = game.installDirectory {
+            do {
+                let ids = try await Task.detached { try RepoPatch.appIDs(directory: directory) }.value
+                var status = fixes.first(where: { $0.id == game.id }) ?? game
+                status.installDirectory = directory
+                status.repoPhoton = ids
+                try rememberFix(status)
+            } catch { errors.append("Cannot verify the R.E.P.O. fix.\n\(error.localizedDescription)") }
         }
         if configLoaded, let game = fixGames.first(where: { $0.id == 739630 }), let directory = game.installDirectory {
             do {
@@ -454,8 +467,9 @@ struct ManagerView: View {
                 status.installDirectory = directory
                 status.phasmophobiaPhotonAppID = appID
                 try rememberFix(status)
-            } catch { self.error = "Cannot verify the Phasmophobia fix.\n\(error.localizedDescription)" }
+            } catch { errors.append("Cannot verify the Phasmophobia fix.\n\(error.localizedDescription)") }
         }
+        if !errors.isEmpty { self.error = errors.joined(separator: "\n\n") }
     }
 
     private func rememberFix(_ game: ManagedGame) throws {
@@ -494,6 +508,9 @@ struct ManagerView: View {
         let nextPhasm: String = next.first(where: { $0.id == 739630 })?.phasmophobiaPhotonAppID ?? ""
         var changedLauncher: URL?
         var changedPicoApp: URL?
+        let previousRepo = fixes.first(where: { $0.id == 3241660 })?.repoPhoton ?? RepoPhotonIDs()
+        let nextRepo = next.first(where: { $0.id == 3241660 })?.repoPhoton ?? RepoPhotonIDs()
+        var changedRepoDirectory: URL?
         var changedPhasmDirectory: URL?
         do {
             try GameConfiguration(games: games, fixes: next).validate()
@@ -519,7 +536,7 @@ struct ManagerView: View {
                     throw ManagerError(message: "Install PICO PARK 2 and refresh the Steam library before changing its Photon patch.")
                 }
                 let app = directory.appendingPathComponent("pico_park_2.app")
-                try SteamInstaller.setPicoPark2Patch(enabledPico, app: app)
+                try PicoPark2Patch.setEnabled(enabledPico, app: app)
                 changedPicoApp = app
             }
             if previousPhasm != nextPhasm {
@@ -530,6 +547,14 @@ struct ManagerView: View {
                 try PhasmophobiaPatch.setAppID(nextPhasm, directory: directory)
                 changedPhasmDirectory = directory
             }
+            if previousRepo != nextRepo {
+                guard let directory = library.first(where: { $0.id == 3241660 })?.installDirectory
+                    ?? fixes.first(where: { $0.id == 3241660 })?.installDirectory else {
+                    throw ManagerError(message: "Install R.E.P.O. and refresh the Steam library before changing its Photon patch.")
+                }
+                try RepoPatch.setAppIDs(nextRepo, directory: directory)
+                changedRepoDirectory = directory
+            }
             try files.save(GameConfiguration(games: games, fixes: next))
             fixes = next
             message = "Saved. Relaunch the affected game to apply changes."
@@ -538,11 +563,14 @@ struct ManagerView: View {
         catch {
             let saveError = error
             do {
+                if let directory = changedRepoDirectory {
+                    try RepoPatch.setAppIDs(previousRepo, directory: directory)
+                }
                 if let directory = changedPhasmDirectory {
                     try PhasmophobiaPatch.setAppID(previousPhasm, directory: directory)
                 }
                 if let app = changedPicoApp {
-                    try SteamInstaller.setPicoPark2Patch(previousPico, app: app)
+                    try PicoPark2Patch.setEnabled(previousPico, app: app)
                 }
                 if let launcher = changedLauncher {
                     try TerrariaServerPatch.setEnabled(previous, launcher: launcher)

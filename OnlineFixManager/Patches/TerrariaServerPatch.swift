@@ -7,8 +7,9 @@ enum TerrariaServerPatch {
         guard result != 0 else { return }
         let detail: String
         switch result {
-        case ESTALE: detail = "The server launcher or its backup changed. Nothing was overwritten. Keep the .onlinefix-backup file for recovery."
-        case ENOTSUP: detail = "This is not a supported Terraria MonoKickstart server launcher."
+        case ESTALE: detail = "Launcher or backup mismatch. Keep the .onlinefix-backup file for recovery."
+        case ENOTSUP: detail = "Unsupported Terraria server launcher. Fix requires MonoKickstart."
+        case ENOENT: detail = "Server launcher is missing. Verify the installation in Steam."
         default: detail = String(cString: strerror(result))
         }
         throw ManagerError(message: "Terraria server environment fix: \(detail)")

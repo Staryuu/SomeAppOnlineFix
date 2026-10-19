@@ -1,5 +1,4 @@
 import CryptoKit
-import AppKit
 import Darwin
 import Foundation
 
@@ -41,33 +40,6 @@ struct SteamInstaller: Sendable {
             throw ManagerError(message: String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
                 + "\nCommand failed: \(URL(fileURLWithPath: executable).lastPathComponent)")
         }
-    }
-
-    private static func checkPicoPatch(_ result: Int32) throws {
-        guard result != 0 else { return }
-        let detail: String
-        switch result {
-        case ENOTSUP: detail = "This is not the supported PICO PARK 2 Apple Silicon build."
-        case ESTALE: detail = "Game files or backups changed, or the patch is incomplete. Keep both game backups for recovery."
-        case EWOULDBLOCK: detail = "Another PICO PARK 2 patch operation is running."
-        case EIO: detail = "File writing, signature verification or signing failed. Keep both game backups for recovery."
-        default: detail = String(cString: strerror(result))
-        }
-        throw ManagerError(message: "PICO PARK 2 Photon compatibility fix: \(detail)")
-    }
-
-    static func picoPark2PatchEnabled(app: URL) throws -> Bool {
-        var enabled = false
-        try checkPicoPatch(app.path.withCString { of_pico_park_2_status($0, &enabled) })
-        return enabled
-    }
-
-    static func setPicoPark2Patch(_ enabled: Bool, app: URL) throws {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.tecopark.picopark2")
-            .contains(where: { $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }) else {
-            throw ManagerError(message: "Quit PICO PARK 2 before changing its Photon compatibility patch.")
-        }
-        try checkPicoPatch(app.path.withCString { of_pico_park_2_patch($0, enabled) })
     }
 
     private func info(at url: URL) throws -> [String: Any] {
@@ -254,6 +226,7 @@ struct SteamInstaller: Sendable {
             var updatedFixes = fixes
             var restoredLauncher: URL?
             var restoredPicoApp: URL?
+            var restoredRepoDirectory: URL?
             var restoredPhasmDirectory: URL?
             var settingsChanged = false
             var exchanged = false
@@ -276,7 +249,7 @@ struct SteamInstaller: Sendable {
                         throw ManagerError(message: "Cannot locate PICO PARK 2 to restore its Photon patch. Reconnect its Steam library and retry uninstalling.")
                     }
                     let picoApp = directory.appendingPathComponent("pico_park_2.app")
-                    try Self.setPicoPark2Patch(false, app: picoApp)
+                    try PicoPark2Patch.setEnabled(false, app: picoApp)
                     restoredPicoApp = picoApp
                     updatedFixes[index].picoPark2Photon = false
                 }
@@ -289,6 +262,15 @@ struct SteamInstaller: Sendable {
                     restoredPhasmDirectory = directory
                     updatedFixes[index].phasmophobiaPhotonAppID = ""
                 }
+                if let index = fixes.firstIndex(where: { $0.id == 3241660 && !$0.repoPhoton.isEmpty }) {
+                    guard let directory = try SteamLibrary.scan(root: steamRoot)
+                        .first(where: { $0.id == 3241660 })?.installDirectory ?? fixes[index].installDirectory else {
+                        throw ManagerError(message: "Cannot locate R.E.P.O. to restore its files. Reconnect its Steam library and retry uninstalling.")
+                    }
+                    try RepoPatch.setAppIDs(RepoPhotonIDs(), directory: directory)
+                    restoredRepoDirectory = directory
+                    updatedFixes[index].repoPhoton = RepoPhotonIDs()
+                }
                 if updatedFixes != fixes {
                     try files.save(GameConfiguration(games: configuration.games, fixes: updatedFixes))
                     settingsChanged = true
@@ -300,12 +282,15 @@ struct SteamInstaller: Sendable {
                 let uninstallError = error
                 do {
                     if exchanged { try swap(staging); try? register() }
+                    if let directory = restoredRepoDirectory, let game = fixes.first(where: { $0.id == 3241660 }) {
+                        try RepoPatch.setAppIDs(game.repoPhoton, directory: directory)
+                    }
                     if let directory = restoredPhasmDirectory,
                        let game = fixes.first(where: { $0.id == 739630 }) {
                         try PhasmophobiaPatch.setAppID(game.phasmophobiaPhotonAppID, directory: directory)
                     }
                     if let picoApp = restoredPicoApp {
-                        try Self.setPicoPark2Patch(true, app: picoApp)
+                        try PicoPark2Patch.setEnabled(true, app: picoApp)
                     }
                     if let launcher = restoredLauncher { try TerrariaServerPatch.setEnabled(true, launcher: launcher) }
                     if settingsChanged { try files.save(configuration) }

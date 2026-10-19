@@ -71,7 +71,7 @@ static int ph_regular(int fd, struct stat *info) {
     return S_ISREG(info->st_mode) && info->st_size > 0 && info->st_nlink == 1 ? 0 : ENOTSUP;
 }
 
-// Normalize only the verified patch region so supported original/partial states share one hash.
+// Hash the original patch bytes so clean and patched files can be compared.
 static int ph_hash(int fd, const char *expected, const PhasmFile *patch) {
     struct stat info;
     int result = ph_regular(fd, &info);
@@ -230,7 +230,7 @@ static int ph_apply(const char *game_directory, const char *photon_app_id, int m
     if (!game_directory || (enabled && (!ph_guid(photon_app_id) || !strcasecmp(photon_app_id, ph_appid)))) return EINVAL;
     int root = open(game_directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
     if (root < 0) return errno;
-    // Lock the directory inode: a lock file inside the game triggers its startup checks.
+    // Lock the folder. A new lock file would trigger the game's startup checks.
     int result = flock(root, LOCK_EX | LOCK_NB) < 0 ? errno : 0;
     int backup_parent = -1;
     char root_path[PATH_MAX] = {0};
@@ -241,7 +241,7 @@ static int ph_apply(const char *game_directory, const char *photon_app_id, int m
         backup_parent = openat(root, "..", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
         if (backup_parent < 0) result = errno;
     }
-    // Honor the old lock while restoring or migrating old backups; never create it.
+    // Respect existing legacy locks without creating new ones.
     int lock = !result ? openat(root, ".onlinefix-phasmophobia.lock", O_RDWR | O_NOFOLLOW) : -1;
     if (!result && lock < 0 && errno != ENOENT) result = errno;
     struct stat lock_info;

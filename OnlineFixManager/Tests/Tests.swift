@@ -18,8 +18,8 @@ import Foundation
         try fm.copyItem(at: bundledResources, to: resources)
         let picoApp = temporary.appendingPathComponent("PICO PARK 2/pico_park_2.app")
         try fm.createDirectory(at: picoApp, withIntermediateDirectories: true)
-        try expectFailure { _ = try SteamInstaller.picoPark2PatchEnabled(app: picoApp) }
-        try expectFailure { try SteamInstaller.setPicoPark2Patch(true, app: picoApp) }
+        try expectFailure(containing: "missing") { _ = try PicoPark2Patch.isEnabled(app: picoApp) }
+        try expectFailure { try PicoPark2Patch.setEnabled(true, app: picoApp) }
         for (id, name, nativeTarget, windowsTarget) in [
             (UInt32(105600), "Terraria", "Terraria.app/Contents/MacOS/TerrariaServer", "Terraria.exe"),
             (UInt32(2644470), "PICO PARK 2", "pico_park_2.app/Contents/Frameworks/GameAssembly.dylib", "pico_park_2.exe")
@@ -67,13 +67,51 @@ import Foundation
         var relocatedPico = ManagedGame(id: 2644470, name: "PICO PARK 2")
         relocatedPico.installDirectory = temporary.appendingPathComponent("relocated-pico")
         let fixRows = migrated.fixGames(in: [relocatedPico, ManagedGame(id: 413150, name: "Unsupported")])
-        precondition(fixRows.count == 3 && !fixRows.contains(where: { $0.id == 413150 }))
+        precondition(fixRows.count == 4 && !fixRows.contains(where: { $0.id == 413150 }))
         let picoRow = fixRows.first(where: { $0.id == 2644470 })!
         precondition(picoRow.picoPark2Photon && picoRow.installDirectory == relocatedPico.installDirectory)
         precondition(migrated.fixGames(in: []).first(where: { $0.id == 2644470 })?.picoPark2Photon == true)
         let catalog = GameConfiguration(games: []).fixGames(in: [])
-        precondition(catalog.count == 3 && Set(catalog.map(\.id)).count == 3)
+        precondition(catalog.count == 4 && Set(catalog.map(\.id)).count == 4)
         precondition(catalog.allSatisfy { !$0.fileFixInstalled && !$0.hasFileFix })
+        precondition(old.games[0].repoPhoton.isEmpty)
+        let repoIDs = RepoPhotonIDs(realtime: "12345678-1234-4321-abcd-123456789abc", voice: "87654321-4321-4321-abcd-cba987654321")
+        precondition(repoIDs.isValid)
+        for invalid in [RepoPhotonIDs(voice: repoIDs.voice), RepoPhotonIDs(realtime: "bad", voice: repoIDs.voice),
+                        RepoPhotonIDs(realtime: repoIDs.realtime, voice: repoIDs.realtime.uppercased()),
+                        RepoPhotonIDs(realtime: "99515094-45b7-4c98-ab70-a448c548c83d", voice: repoIDs.voice),
+                        RepoPhotonIDs(realtime: repoIDs.realtime, voice: "dfc40a01-c3a4-4395-9707-b71118816d2b".uppercased())] {
+            precondition(!invalid.isValid)
+        }
+        var repo = ManagedGame(id: 3241660, name: "R.E.P.O.")
+        repo.installDirectory = temporary.appendingPathComponent("repo-install-check")
+        precondition(!repo.fileFixInstalled)
+        let repoAssembly = repo.installDirectory!.appendingPathComponent("REPO_Data/Managed/Assembly-CSharp.dll")
+        try fm.createDirectory(at: repoAssembly.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("unsupported build".utf8).write(to: repoAssembly)
+        precondition(repo.fileFixInstalled && repo.nativePatchApp == nil)
+        try expectFailure(containing: "hashes or structure") { _ = try RepoPatch.appIDs(directory: repo.installDirectory!) }
+        repo.repoPhoton = repoIDs
+        try files.save(GameConfiguration(games: [repo]))
+        try check(files.loadConfiguration().fixes == [repo.fileFixSettings])
+        try check(files.load()[0].repoPhoton.isEmpty)
+        var wrongRepo = ManagedGame(id: 105600, name: "Wrong game")
+        wrongRepo.repoPhoton = repoIDs
+        try expectFailure { try files.save(GameConfiguration(games: [], fixes: [wrongRepo])) }
+        for value in ["null", "true", "{}", "{\"realtime\":1,\"voice\":false}"] {
+            let json = "{\"id\":3241660,\"name\":\"R.E.P.O.\",\"keepRealAppID\":false,\"repoPhoton\":\(value)}"
+            try expectFailure { _ = try JSONDecoder().decode(ManagedGame.self, from: Data(json.utf8)) }
+        }
+        precondition(Set(PhotonServers.voiceServers.map(\.appID)).count == PhotonServers.voiceServers.count)
+        for server in PhotonServers.voiceServers where !server.appID.isEmpty {
+            precondition(RepoPhotonIDs(realtime: PhotonServers.all[0].appID, voice: server.appID).isValid)
+        }
+        let punOnly = RepoPhotonIDs(realtime: PhotonServers.all[0].appID)
+        precondition(punOnly.isValid)
+        repo.repoPhoton = punOnly
+        try files.save(GameConfiguration(games: [], fixes: [repo]))
+        try check(files.loadConfiguration().fixes[0].repoPhoton == punOnly)
+        try files.save(GameConfiguration(games: []))
         var phasmInstall = ManagedGame(id: 739630, name: "Phasmophobia")
         phasmInstall.installDirectory = temporary.appendingPathComponent("phasm-install-check")
         precondition(!phasmInstall.fileFixInstalled)
@@ -83,12 +121,14 @@ import Foundation
             try Data("fixture".utf8).write(to: target)
         }
         precondition(phasmInstall.fileFixInstalled)
+        try expectFailure(containing: "hashes or structure") { _ = try PhasmophobiaPatch.appID(directory: phasmInstall.installDirectory!) }
         try fm.removeItem(at: phasmInstall.installDirectory!.appendingPathComponent("GameAssembly.dll"))
         precondition(!phasmInstall.fileFixInstalled)
         var phasm = ManagedGame(id: 739630, name: "Phasmophobia")
-        precondition(Set(PhasmophobiaPatch.servers.map(\.appID)).count == PhasmophobiaPatch.servers.count)
-        for server in PhasmophobiaPatch.servers {
+        precondition(Set(PhotonServers.all.map(\.appID)).count == PhotonServers.all.count)
+        for server in PhotonServers.all {
             precondition(PhasmophobiaPatch.validateAppID(server.appID))
+            precondition(RepoPhotonIDs(realtime: server.appID).isValid)
             phasm.phasmophobiaPhotonAppID = server.appID
             try files.save(GameConfiguration(games: [], fixes: [phasm]))
             try check(files.loadConfiguration().fixes == [phasm.fileFixSettings])
@@ -145,7 +185,7 @@ import Foundation
         precondition(perGame[0].patches == game.patches && perGame[1].patches == PatchSettings())
         // A file fix alone must never opt its game into Steam routing.
         phasm = ManagedGame(id: 739630, name: "Phasmophobia")
-        phasm.phasmophobiaPhotonAppID = PhasmophobiaPatch.servers[0].appID
+        phasm.phasmophobiaPhotonAppID = PhotonServers.all[0].appID
         try files.save(GameConfiguration(games: [], fixes: [phasm]))
         try check(files.load().isEmpty)
         try files.save([game])
@@ -352,6 +392,14 @@ import Foundation
         precondition(installer.isInstalled())
         try check(files.loadConfiguration() == GameConfiguration(games: [patchedGame, pico, missingPhasm]).separatedFileFixes)
         try check(Data(contentsOf: installedLauncher) == patchedLauncher)
+        var missingRepo = ManagedGame(id: 3241660, name: "R.E.P.O.")
+        missingRepo.repoPhoton = repoIDs
+        missingRepo.installDirectory = temporary.appendingPathComponent("missing-repo")
+        try files.save(GameConfiguration(games: [patchedGame, pico, missingRepo]))
+        try expectFailure { try installer.uninstall(steamRoot: root) }
+        precondition(installer.isInstalled())
+        try check(files.loadConfiguration() == GameConfiguration(games: [patchedGame, pico, missingRepo]).separatedFileFixes)
+        try check(Data(contentsOf: installedLauncher) == patchedLauncher)
         try files.save(GameConfiguration(games: [patchedGame, pico]))
         try installer.uninstall(steamRoot: root)
         precondition(!installer.isInstalled())
@@ -369,7 +417,7 @@ import Foundation
         try check(files.load().isEmpty)
         try check(Data(contentsOf: installedLauncher) == originalLauncher)
         try check(files.loadConfiguration().fixes == [game.fileFixSettings])
-        print("Manager checks passed: legacy fix migration, independent Fix/My Games settings, fix list discovery, library scan, Terraria restoration, PICO/Phasmophobia validation, Steam build guard, persistent install, preservation and uninstall rollback.")
+        print("Manager checks passed: legacy fix migration, independent Fix/My Games settings, fix list discovery, library scan, Terraria restoration, PICO/Phasmophobia/REPO validation and REPO configuration, Steam build guard, persistent install, preservation and uninstall rollback.")
     }
 
     static func check(_ value: @autoclosure () throws -> Bool) throws {
@@ -377,8 +425,11 @@ import Foundation
         precondition(passed)
     }
 
-    static func expectFailure(_ operation: () throws -> Void) throws {
-        do { try operation() } catch { return }
+    static func expectFailure(containing message: String? = nil, _ operation: () throws -> Void) throws {
+        do { try operation() } catch {
+            if let message { precondition(error.localizedDescription.contains(message)) }
+            return
+        }
         throw ManagerError(message: "Expected the operation to fail.")
     }
 }

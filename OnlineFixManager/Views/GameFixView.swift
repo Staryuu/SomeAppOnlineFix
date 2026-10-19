@@ -5,17 +5,28 @@ struct GameFixView: View {
     @ViewState private var draft: ManagedGame
     @ViewState private var phasmEnabled: Bool
     @ViewState private var phasmAppID: String
+    @ViewState private var repoEnabled: Bool
     let game: ManagedGame
     let supportsNativePatch: Bool
     let onSave: (ManagedGame) -> Bool
 
     init(game: ManagedGame, supportsNativePatch: Bool, onSave: @escaping (ManagedGame) -> Bool) {
-        _draft = ViewState(initialValue: game)
+        var initial = game
+        if game.id == 3241660 && game.repoPhoton.realtime.isEmpty {
+            initial.repoPhoton.realtime = PhotonServers.all[0].appID
+        }
+        _draft = ViewState(initialValue: initial)
+        _repoEnabled = ViewState(initialValue: !game.repoPhoton.isEmpty)
         _phasmEnabled = ViewState(initialValue: !game.phasmophobiaPhotonAppID.isEmpty)
         _phasmAppID = ViewState(initialValue: game.phasmophobiaPhotonAppID.lowercased())
         self.game = game
         self.supportsNativePatch = supportsNativePatch
         self.onSave = onSave
+    }
+
+    private var repoIDs: RepoPhotonIDs {
+        RepoPhotonIDs(realtime: draft.repoPhoton.realtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                      voice: draft.repoPhoton.voice.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
 
     var body: some View {
@@ -26,7 +37,7 @@ struct GameFixView: View {
             }
             Form {
                 if !game.fileFixInstalled {
-                    Label("Install the supported game version, then refresh your library to apply this fix.", systemImage: "info.circle")
+                    Label("Install the game, then refresh your library.", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 if draft.id == 105600 || draft.id == 2644470 {
@@ -34,13 +45,44 @@ struct GameFixView: View {
                         if draft.id == 105600 {
                             Toggle("Server environment fix", isOn: $draft.patches.terrariaServerEnvironment)
                                 .disabled(!supportsNativePatch)
-                            Text("Native macOS only. Updates the server launcher to keep Steam injection out of shell helpers. Keeps a backup; disabling restores it.")
+                            Text("Native macOS only. Fixes server startup. Disabling restores the backup.")
                                 .font(.caption).foregroundStyle(.secondary)
                         } else {
                             Toggle("Photon compatibility fix", isOn: $draft.picoPark2Photon)
                                 .disabled(!supportsNativePatch)
-                            Text("Native macOS only, for the supported Apple Silicon build. Quit PICO PARK 2 before saving. Keeps backups; disabling restores the original files.")
+                            Text("Apple Silicon macOS only. Quit the game before saving. Disabling restores backups.")
                                 .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if draft.id == 3241660 {
+                    Section("R.E.P.O. · Windows / NotProton") {
+                        Toggle("Experimental Photon file patch", isOn: $repoEnabled)
+                            .disabled(!game.fileFixInstalled)
+                        Picker("Server", selection: $draft.repoPhoton.realtime) {
+                            ForEach(PhotonServers.all, id: \.appID) { server in
+                                Text(server.name).tag(server.appID)
+                            }
+                            if !PhotonServers.all.contains(where: { $0.appID == draft.repoPhoton.realtime }) {
+                                Text("Previously configured server").tag(draft.repoPhoton.realtime)
+                            }
+                        }
+                        .disabled(!repoEnabled || !game.fileFixInstalled)
+                        Picker("Voice server", selection: $draft.repoPhoton.voice) {
+                            Text("Original voice server").tag("")
+                            ForEach(PhotonServers.voiceServers.filter { !$0.appID.isEmpty }, id: \.appID) { server in
+                                Text(server.name).tag(server.appID)
+                            }
+                            if !draft.repoPhoton.voice.isEmpty && !PhotonServers.voiceServers.contains(where: { $0.appID == draft.repoPhoton.voice }) {
+                                Text("Previously configured server").tag(draft.repoPhoton.voice)
+                            }
+                        }
+                        .disabled(!repoEnabled || !game.fileFixInstalled)
+                        Text("Use the same servers, region and game version. Multiplayer and voice untested.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if repoEnabled && !repoIDs.isValid {
+                            Text("Choose a server.")
+                                .font(.caption).foregroundStyle(.red)
                         }
                     }
                 }
@@ -50,37 +92,38 @@ struct GameFixView: View {
                             .disabled(!game.fileFixInstalled)
                         Picker("Server", selection: $phasmAppID) {
                             Text("Choose a server").tag("")
-                            ForEach(PhasmophobiaPatch.servers, id: \.appID) { server in
+                            ForEach(PhotonServers.all, id: \.appID) { server in
                                 Text(server.name).tag(server.appID)
                             }
-                            if !draft.phasmophobiaPhotonAppID.isEmpty && !PhasmophobiaPatch.servers.contains(where: { $0.appID == draft.phasmophobiaPhotonAppID.lowercased() }) {
+                            if !draft.phasmophobiaPhotonAppID.isEmpty && !PhotonServers.all.contains(where: { $0.appID == draft.phasmophobiaPhotonAppID.lowercased() }) {
                                 Text("Previously configured server").tag(draft.phasmophobiaPhotonAppID.lowercased())
                             }
                         }
                         .disabled(!phasmEnabled || !game.fileFixInstalled)
                         if phasmEnabled && !PhasmophobiaPatch.validateAppID(phasmAppID.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                            Text("Choose a server to enable Save.")
+                            Text("Choose a server.")
                                 .font(.caption).foregroundStyle(.red)
                         }
-                        Text("Players must choose the same server. Launcher reservation and Unity Services authentication are separate; multiplayer compatibility is untested.")
+                        Text("Use the same server. Other authentication checks may block multiplayer. Multiplayer untested.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }.formStyle(.grouped)
-            Text("Changes apply to this game’s files. Relaunch it after saving.").font(.caption).foregroundStyle(.secondary)
+            Text("Relaunch the game after saving.").font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("Restore Defaults") { draft.patches.terrariaServerEnvironment = false; draft.picoPark2Photon = false; phasmEnabled = false; phasmAppID = "" }
+                Button("Restore Defaults") { draft.patches.terrariaServerEnvironment = false; draft.picoPark2Photon = false; phasmEnabled = false; phasmAppID = ""; repoEnabled = false }
                     .disabled(!game.fileFixInstalled)
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") {
                     var updated = draft
+                    updated.repoPhoton = repoEnabled ? repoIDs : RepoPhotonIDs()
                     updated.phasmophobiaPhotonAppID = phasmEnabled ? phasmAppID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() : ""
                     if onSave(updated) { dismiss() }
                 }
-                .disabled(!game.fileFixInstalled || (draft.id == 739630 && phasmEnabled && !PhasmophobiaPatch.validateAppID(phasmAppID.trimmingCharacters(in: .whitespacesAndNewlines))))
+                .disabled(!game.fileFixInstalled || (draft.id == 3241660 && repoEnabled && !repoIDs.isValid) || (draft.id == 739630 && phasmEnabled && !PhasmophobiaPatch.validateAppID(phasmAppID.trimmingCharacters(in: .whitespacesAndNewlines))))
                 .keyboardShortcut(.defaultAction)
             }
-        }.padding(24).frame(width: 520, height: draft.id == 739630 ? 510 : 400)
+        }.padding(24).frame(width: 520, height: [739630, 3241660].contains(draft.id) ? 510 : 400)
     }
 }
