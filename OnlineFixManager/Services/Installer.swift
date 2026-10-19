@@ -249,16 +249,18 @@ struct SteamInstaller: Sendable {
                 throw ManagerError(message: "Steam changed after installation. Refusing to restore an older bundle. Keep the backup; use a clean Steam installation to recover.")
             }
             guard try fingerprint(backup) == record.originalHash else { throw ManagerError(message: "The backup changed or is incomplete. Steam was not modified.") }
-            let games = try files.load()
-            var updatedGames = games
+            let configuration = try files.loadConfiguration()
+            let fixes = configuration.fixes
+            var updatedFixes = fixes
             var restoredLauncher: URL?
             var restoredPicoApp: URL?
+            var restoredPhasmDirectory: URL?
             var settingsChanged = false
             var exchanged = false
             let staging = app.deletingLastPathComponent().appendingPathComponent(".OnlineFix-restore-\(UUID().uuidString).app")
             try Self.run("/usr/bin/ditto", [backup.path, staging.path])
             do {
-                if let index = games.firstIndex(where: { $0.id == 105600 && $0.patches.terrariaServerEnvironment }) {
+                if let index = fixes.firstIndex(where: { $0.id == 105600 && $0.patches.terrariaServerEnvironment }) {
                     guard let directory = try SteamLibrary.scan(root: steamRoot)
                         .first(where: { $0.id == 105600 })?.installDirectory else {
                         throw ManagerError(message: "Cannot locate Terraria to restore its server launcher. Reconnect its Steam library and retry uninstalling.")
@@ -266,9 +268,9 @@ struct SteamInstaller: Sendable {
                     let launcher = directory.appendingPathComponent("Terraria.app/Contents/MacOS/TerrariaServer")
                     try TerrariaServerPatch.setEnabled(false, launcher: launcher)
                     restoredLauncher = launcher
-                    updatedGames[index].patches.terrariaServerEnvironment = false
+                    updatedFixes[index].patches.terrariaServerEnvironment = false
                 }
-                if let index = games.firstIndex(where: { $0.id == 2644470 && $0.picoPark2Photon }) {
+                if let index = fixes.firstIndex(where: { $0.id == 2644470 && $0.picoPark2Photon }) {
                     guard let directory = try SteamLibrary.scan(root: steamRoot)
                         .first(where: { $0.id == 2644470 })?.installDirectory else {
                         throw ManagerError(message: "Cannot locate PICO PARK 2 to restore its Photon patch. Reconnect its Steam library and retry uninstalling.")
@@ -276,10 +278,19 @@ struct SteamInstaller: Sendable {
                     let picoApp = directory.appendingPathComponent("pico_park_2.app")
                     try Self.setPicoPark2Patch(false, app: picoApp)
                     restoredPicoApp = picoApp
-                    updatedGames[index].picoPark2Photon = false
+                    updatedFixes[index].picoPark2Photon = false
                 }
-                if updatedGames != games {
-                    try files.save(updatedGames)
+                if let index = fixes.firstIndex(where: { $0.id == 739630 && !$0.phasmophobiaPhotonAppID.isEmpty }) {
+                    guard let directory = try SteamLibrary.scan(root: steamRoot)
+                        .first(where: { $0.id == 739630 })?.installDirectory ?? fixes[index].installDirectory else {
+                        throw ManagerError(message: "Cannot locate Phasmophobia to restore its files. Reconnect its Steam library and retry uninstalling.")
+                    }
+                    try PhasmophobiaPatch.setAppID("", directory: directory)
+                    restoredPhasmDirectory = directory
+                    updatedFixes[index].phasmophobiaPhotonAppID = ""
+                }
+                if updatedFixes != fixes {
+                    try files.save(GameConfiguration(games: configuration.games, fixes: updatedFixes))
                     settingsChanged = true
                 }
                 try swap(staging)
@@ -289,11 +300,15 @@ struct SteamInstaller: Sendable {
                 let uninstallError = error
                 do {
                     if exchanged { try swap(staging); try? register() }
+                    if let directory = restoredPhasmDirectory,
+                       let game = fixes.first(where: { $0.id == 739630 }) {
+                        try PhasmophobiaPatch.setAppID(game.phasmophobiaPhotonAppID, directory: directory)
+                    }
                     if let picoApp = restoredPicoApp {
                         try Self.setPicoPark2Patch(true, app: picoApp)
                     }
                     if let launcher = restoredLauncher { try TerrariaServerPatch.setEnabled(true, launcher: launcher) }
-                    if settingsChanged { try files.save(games) }
+                    if settingsChanged { try files.save(configuration) }
                 } catch {
                     throw ManagerError(message: "Uninstall rollback failed. Keep the Steam backup, \(staging.path), and game-specific patch backups for recovery.\n\(error.localizedDescription)")
                 }

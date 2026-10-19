@@ -109,6 +109,8 @@ int main(void) {
         assert(configured == 480 && of_session().game == 105600 && of_session().keep_id);
         OFPatches p = of_session().patches;
         assert(!p.startup_id && !p.overlay_id && !p.input_id && !p.stats_id);
+        bool keep = false;
+        assert(!of_config_game(739630, &keep, &p)); // A Manager file fix is not Steam routing.
     }
     char config[] = "/tmp/onlinefix-config-XXXXXX";
     int descriptor = mkstemp(config);

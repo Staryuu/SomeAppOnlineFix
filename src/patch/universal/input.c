@@ -1,4 +1,4 @@
-#include "../onlinefix.h"
+#include "../../onlinefix.h"
 
 uint32_t of_patch_input(OFSession session, uint32_t reported) {
     return session.patches.input_id && session.game && reported == 480 ? session.game : reported;

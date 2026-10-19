@@ -1,37 +1,13 @@
 import AppKit
 import SwiftUI
 
-// Keep the property-wrapper API available with Command Line Tools SDKs.
-private typealias ViewState<Value> = SwiftUI.State<Value>
-
-@MainActor private enum InstallationActivity { static var busy = false }
-
-@MainActor final class ManagerDelegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if !InstallationActivity.busy { return .terminateNow }
-        let alert = NSAlert()
-        alert.messageText = "Installation in progress"
-        alert.informativeText = "Wait for the installation or removal to finish before quitting."
-        alert.runModal()
-        return .terminateCancel
-    }
-}
-
-@main struct OnlineFixManagerApp: App {
-    @NSApplicationDelegateAdaptor(ManagerDelegate.self) private var delegate
-
-    var body: some Scene {
-        Window("OnlineFix Manager", id: "manager") { ManagerView() }
-            .defaultSize(width: 980, height: 680)
-    }
-}
-
 private enum ManagerPane: String {
-    case games, add, installation, logs
+    case games, add, fixes, installation, logs
     var title: String {
         switch self {
         case .games: "My Games"
         case .add: "Add Games"
+        case .fixes: "Fix"
         case .installation: "Installation"
         case .logs: "Logs"
         }
@@ -39,9 +15,10 @@ private enum ManagerPane: String {
 
 }
 
-private struct ManagerView: View {
+struct ManagerView: View {
     @AppStorage("steamAppPath") private var steamPath = "/Applications/Steam.app"
     @ViewState private var games: [ManagedGame] = []
+    @ViewState private var fixes: [ManagedGame] = []
     @ViewState private var library: [ManagedGame] = []
     @ViewState private var query = ""
     @ViewState private var installed = false
@@ -56,6 +33,11 @@ private struct ManagerView: View {
     @ViewState private var searching = false
     @ViewState private var searchError: String?
     @ViewState private var patchGame: ManagedGame?
+    @ViewState private var fixGame: ManagedGame?
+
+    private var fixGames: [ManagedGame] {
+        GameConfiguration(games: games, fixes: fixes).fixGames(in: library)
+    }
 
     private let files = ManagerFiles.standard
     private var installer: SteamInstaller {
@@ -80,6 +62,7 @@ private struct ManagerView: View {
                 Section("Library") {
                     Label("My Games", systemImage: "gamecontroller").tag(ManagerPane.games)
                     Label("Add Games", systemImage: "plus.app").tag(ManagerPane.add)
+                    Label("Fix", systemImage: "wrench.and.screwdriver").tag(ManagerPane.fixes)
                 }
                 Section("Manage") {
                     Label("Installation", systemImage: "arrow.down.app").tag(ManagerPane.installation)
@@ -107,6 +90,7 @@ private struct ManagerView: View {
                 switch selectedPane ?? .games {
                 case .games: gamesPane
                 case .add: addPane
+                case .fixes: fixesPane
                 case .installation: settingsPane
                 case .logs: logsPane
                 }
@@ -144,6 +128,9 @@ private struct ManagerView: View {
                 next[index] = updated
                 return save(next)
             }
+        }
+        .sheet(item: $fixGame) { game in
+            GameFixView(game: game, supportsNativePatch: game.nativePatchApp != nil, onSave: saveFix)
         }
         .onChange(of: selectedPane) { _, pane in searchFocused = pane == .add }
         .task { await reload() }
@@ -249,6 +236,56 @@ private struct ManagerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private var fixesPane: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Available fixes").font(.title2.bold())
+            Text("Apply or restore changes to game files. Steam behavior is configured in My Games → Patch.")
+                .foregroundStyle(.secondary)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 16)], alignment: .leading, spacing: 16) {
+                    ForEach(fixGames) { game in fixCard(game) }
+                }
+            }
+            Text("Browse all supported fixes. Install the game and refresh your library to apply one.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func fixCard(_ game: ManagedGame) -> some View {
+        Button { fixGame = game } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                AsyncImage(url: game.artworkURL) { phase in
+                    if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
+                    else { ZStack { Color.secondary.opacity(0.1); Image(systemName: "gamecontroller").font(.largeTitle).foregroundStyle(.tertiary) } }
+                }
+                .frame(height: 112).clipped().accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(game.name).font(.headline).lineLimit(1)
+                    Text(game.id == 105600 ? "Server environment fix" : "Photon multiplayer fix")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Text(game.id == 739630 ? "Windows / NotProton" : "Native macOS")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Label(game.fileFixInstalled ? "Installed" : "Not installed",
+                              systemImage: game.fileFixInstalled ? "checkmark.circle.fill" : "arrow.down.circle")
+                            .foregroundStyle(game.fileFixInstalled ? Color.green : Color.secondary)
+                        Spacer(minLength: 0)
+                        if game.hasFileFix { Text("Fix active").foregroundStyle(.green) }
+                    }.font(.caption)
+                }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(!configLoaded)
+        .accessibilityLabel("\(game.name), \(game.fileFixInstalled ? "installed" : "not installed"), view fix")
+    }
+
     private func gameRow(_ game: ManagedGame, enabled: Bool) -> some View {
         HStack(spacing: 16) {
             AsyncImage(url: game.artworkURL) { phase in
@@ -262,7 +299,7 @@ private struct ManagerView: View {
             }
             Spacer(minLength: 12)
             if enabled {
-                Button("Patches…") { patchGame = game }
+                Button("Patch") { patchGame = game }
                 Menu {
                     Button("Remove Game", role: .destructive) { save(games.filter { $0.id != game.id }) }
                 } label: { Image(systemName: "ellipsis") }
@@ -391,39 +428,81 @@ private struct ManagerView: View {
     }
 
     private func reload() async {
-        do { games = try files.load(); configLoaded = true }
-        catch { configLoaded = false; self.error = "Cannot load games.json. The existing file was not changed.\n\(error.localizedDescription)" }
+        do {
+            let configuration = try files.loadConfiguration()
+            games = configuration.games
+            fixes = configuration.fixes
+            configLoaded = true
+        } catch { configLoaded = false; self.error = "Cannot load games.json. The existing file was not changed.\n\(error.localizedDescription)" }
         installed = installer.isInstalled()
         let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Steam")
         do { library = try await Task.detached { try SteamLibrary.scan(root: root) }.value }
         catch { self.error = "Cannot scan the Steam library: \(error.localizedDescription)" }
-        if configLoaded, games.contains(where: { $0.id == 2644470 }),
-           let directory = library.first(where: { $0.id == 2644470 })?.installDirectory {
-            let app = directory.appendingPathComponent("pico_park_2.app")
+        if configLoaded, let game = fixGames.first(where: { $0.id == 2644470 }), let app = game.nativePatchApp {
             do {
                 let enabled = try await Task.detached { try SteamInstaller.picoPark2PatchEnabled(app: app) }.value
-                if let index = games.firstIndex(where: { $0.id == 2644470 }), games[index].picoPark2Photon != enabled {
-                    var updated = games
-                    updated[index].picoPark2Photon = enabled
-                    try files.save(updated)
-                    games = updated
-                }
-            } catch { self.error = "Cannot verify the PICO PARK 2 patch.\n\(error.localizedDescription)" }
+                var status = fixes.first(where: { $0.id == game.id }) ?? game
+                status.installDirectory = game.installDirectory
+                status.picoPark2Photon = enabled
+                try rememberFix(status)
+            } catch { self.error = "Cannot verify the PICO PARK 2 fix.\n\(error.localizedDescription)" }
         }
+        if configLoaded, let game = fixGames.first(where: { $0.id == 739630 }), let directory = game.installDirectory {
+            do {
+                let appID = try await Task.detached { try PhasmophobiaPatch.appID(directory: directory) }.value
+                var status = fixes.first(where: { $0.id == game.id }) ?? game
+                status.installDirectory = directory
+                status.phasmophobiaPhotonAppID = appID
+                try rememberFix(status)
+            } catch { self.error = "Cannot verify the Phasmophobia fix.\n\(error.localizedDescription)" }
+        }
+    }
+
+    private func rememberFix(_ game: ManagedGame) throws {
+        var next = fixes
+        if let index = next.firstIndex(where: { $0.id == game.id }) {
+            guard next[index] != game else { return }
+            next[index] = game
+        } else {
+            guard game.hasFileFix else { return }
+            next.append(game)
+        }
+        try files.save(GameConfiguration(games: games, fixes: next))
+        fixes = next
     }
 
     @discardableResult private func save(_ next: [ManagedGame]) -> Bool {
         guard configLoaded else { return false }
-        let previous = games.contains { $0.id == 105600 && $0.patches.terrariaServerEnvironment }
+        do {
+            try files.save(GameConfiguration(games: next, fixes: fixes))
+            games = next
+            message = "Saved. Relaunch the affected game to apply changes."
+            return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
+
+    @discardableResult private func saveFix(_ updated: ManagedGame) -> Bool {
+        var next = fixes
+        if let index = next.firstIndex(where: { $0.id == updated.id }) { next[index] = updated.fileFixSettings }
+        else { next.append(updated.fileFixSettings) }
+        guard configLoaded else { return false }
+        let previous = fixes.contains { $0.id == 105600 && $0.patches.terrariaServerEnvironment }
         let enabled = next.contains { $0.id == 105600 && $0.patches.terrariaServerEnvironment }
-        let previousPico = games.contains { $0.id == 2644470 && $0.picoPark2Photon }
+        let previousPico = fixes.contains { $0.id == 2644470 && $0.picoPark2Photon }
         let enabledPico = next.contains { $0.id == 2644470 && $0.picoPark2Photon }
+        let previousPhasm: String = fixes.first(where: { $0.id == 739630 })?.phasmophobiaPhotonAppID ?? ""
+        let nextPhasm: String = next.first(where: { $0.id == 739630 })?.phasmophobiaPhotonAppID ?? ""
         var changedLauncher: URL?
         var changedPicoApp: URL?
+        var changedPhasmDirectory: URL?
         do {
-            try GameConfiguration(games: next).validate()
+            try GameConfiguration(games: games, fixes: next).validate()
             if previous != enabled {
-                if let directory = library.first(where: { $0.id == 105600 })?.installDirectory {
+                if enabled, library.first(where: { $0.id == 105600 })?.nativePatchApp == nil {
+                    throw ManagerError(message: "The Terraria server fix requires the native macOS installation. Windows versions through NotProton are not supported.")
+                }
+                if let directory = library.first(where: { $0.id == 105600 })?.installDirectory
+                    ?? fixes.first(where: { $0.id == 105600 })?.installDirectory {
                     let launcher = directory.appendingPathComponent("Terraria.app/Contents/MacOS/TerrariaServer")
                     try TerrariaServerPatch.setEnabled(enabled, launcher: launcher)
                     changedLauncher = launcher
@@ -432,22 +511,36 @@ private struct ManagerView: View {
                 }
             }
             if previousPico != enabledPico {
+                if enabledPico, library.first(where: { $0.id == 2644470 })?.nativePatchApp == nil {
+                    throw ManagerError(message: "The PICO PARK 2 Photon fix requires the native macOS installation. Windows versions through NotProton are not supported.")
+                }
                 guard let directory = library.first(where: { $0.id == 2644470 })?.installDirectory
-                    ?? games.first(where: { $0.id == 2644470 })?.installDirectory else {
+                    ?? fixes.first(where: { $0.id == 2644470 })?.installDirectory else {
                     throw ManagerError(message: "Install PICO PARK 2 and refresh the Steam library before changing its Photon patch.")
                 }
                 let app = directory.appendingPathComponent("pico_park_2.app")
                 try SteamInstaller.setPicoPark2Patch(enabledPico, app: app)
                 changedPicoApp = app
             }
-            try files.save(next)
-            games = next
+            if previousPhasm != nextPhasm {
+                guard let directory = library.first(where: { $0.id == 739630 })?.installDirectory
+                    ?? fixes.first(where: { $0.id == 739630 })?.installDirectory else {
+                    throw ManagerError(message: "Install Phasmophobia and refresh the Steam library before changing its Photon patch.")
+                }
+                try PhasmophobiaPatch.setAppID(nextPhasm, directory: directory)
+                changedPhasmDirectory = directory
+            }
+            try files.save(GameConfiguration(games: games, fixes: next))
+            fixes = next
             message = "Saved. Relaunch the affected game to apply changes."
             return true
         }
         catch {
             let saveError = error
             do {
+                if let directory = changedPhasmDirectory {
+                    try PhasmophobiaPatch.setAppID(previousPhasm, directory: directory)
+                }
                 if let app = changedPicoApp {
                     try SteamInstaller.setPicoPark2Patch(previousPico, app: app)
                 }
@@ -495,66 +588,13 @@ private struct ManagerView: View {
                     if remove { try target.uninstall() } else { try target.install() }
                 }.value
                 installed = target.isInstalled()
-                if remove { games = try files.load() }
+                if remove {
+                    let configuration = try files.loadConfiguration()
+                    games = configuration.games
+                    fixes = configuration.fixes
+                }
                 message = remove ? "OnlineFix removed. Your game list and logs were kept." : "Installed. Launch Steam normally; you can close Manager now."
             } catch { self.error = error.localizedDescription; message = ""; installed = target.isInstalled() }
         }
-    }
-}
-
-private struct GamePatchView: View {
-    @Environment(\.dismiss) private var dismiss
-    @ViewState private var draft: ManagedGame
-    let onSave: (ManagedGame) -> Bool
-
-    init(game: ManagedGame, onSave: @escaping (ManagedGame) -> Bool) {
-        _draft = ViewState(initialValue: game)
-        self.onSave = onSave
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Game patches").font(.title2.bold())
-                Text("\(draft.name) · AppID \(String(draft.id))").foregroundStyle(.secondary)
-            }
-            Form {
-                Section("AppID reporting") {
-                    Toggle("Keep real AppID", isOn: $draft.keepRealAppID)
-                        .help("Always report the real game ID. Matchmaking still uses 480.")
-                    Toggle("Restore AppID at startup", isOn: $draft.patches.startupAppID)
-                        .disabled(draft.keepRealAppID)
-                        .help("Report the real game ID until networking starts. Keep real AppID overrides this setting.")
-                }
-                Section("Compatibility patches") {
-                    Toggle("Restore overlay AppID", isOn: $draft.patches.overlayAppID)
-                        .help("Use the original game ID for the Steam overlay.")
-                    Toggle("Restore Steam Input AppID", isOn: $draft.patches.inputAppID)
-                        .help("Use the game's own controller configuration.")
-                    Toggle("Restore stats callback AppID", isOn: $draft.patches.statsAppID)
-                        .help("Report the original game ID in UserStatsReceived callbacks.")
-                }
-                if draft.id == 105600 || draft.id == 2644470 {
-                    Section("Game Specific Patches") {
-                        if draft.id == 105600 {
-                            Toggle("Server environment fix", isOn: $draft.patches.terrariaServerEnvironment)
-                            Text("Updates the server launcher to keep Steam injection out of shell helpers. Keeps a backup; disabling restores it.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            Toggle("Photon compatibility fix", isOn: $draft.picoPark2Photon)
-                            Text("Fixes online room connections for the supported Apple Silicon build. Quit PICO PARK 2 before saving. Keeps backups; disabling restores the original files.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }.formStyle(.grouped)
-            Text("Settings apply only to this game. Relaunch it after saving.").font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Button("Restore Defaults") { draft.patches = PatchSettings(); draft.keepRealAppID = false; draft.picoPark2Photon = false }
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") { if onSave(draft) { dismiss() } }.keyboardShortcut(.defaultAction)
-            }
-        }.padding(24).frame(width: 520, height: draft.id == 105600 || draft.id == 2644470 ? 600 : 490)
     }
 }

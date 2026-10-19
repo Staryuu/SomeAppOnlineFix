@@ -1,5 +1,5 @@
-#include "../onlinefix.h"
-#include "../ipc.h"
+#include "../../onlinefix.h"
+#include "../../ipc.h"
 #include <string.h>
 
 uint32_t of_identity(OFSession session, uint32_t reported) {

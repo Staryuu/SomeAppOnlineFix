@@ -1,7 +1,7 @@
 CC := clang
 MIN_VER := 15.0
 CFLAGS := -arch arm64 -mmacosx-version-min=$(MIN_VER) -std=c17 -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -fPIC -fvisibility=hidden -MMD -MP -Isrc -Ivendor -Ivendor/dobby/include
-PATCH_SRCS := $(wildcard src/patch/*.c)
+PATCH_SRCS := $(wildcard src/patch/*.c src/patch/*/*.c)
 SRCS := $(filter-out src/stub_x86_64.c,$(wildcard src/*.c)) $(PATCH_SRCS) vendor/cJSON.c
 OBJS := $(patsubst %.c,out/%.o,$(SRCS))
 DOBBY := build/dobby
@@ -12,13 +12,13 @@ all: out/onlinefix.dylib manager
 
 manager: out/manager.stamp
 
-MANAGER_SOURCES := $(filter-out OnlineFixManager/Tests.swift,$(wildcard OnlineFixManager/*.swift))
+MANAGER_SOURCES := $(filter-out OnlineFixManager/Tests/%,$(wildcard OnlineFixManager/*/*.swift))
 SWIFTFLAGS := -target arm64-apple-macos$(MIN_VER) -swift-version 6 -O -g -parse-as-library -module-cache-path out/swift-module-cache
 SWIFTFLAGS += -import-objc-header src/patch/manager.h
-MANAGER_PATCH_OBJS := out/src/patch/terraria_server.o out/src/patch/pico_park_2.o
+MANAGER_PATCH_OBJS := out/src/patch/gamespecific/terraria_server.o out/src/patch/gamespecific/pico_park_2.o out/src/patch/gamespecific/phasmophobia.o
 PROFILES := $(wildcard signatures/macos.arm64/*.json)
 
-out/manager.stamp: $(MANAGER_SOURCES) OnlineFixManager/Info.plist out/onlinefix.dylib $(PROFILES) $(MANAGER_PATCH_OBJS) src/patch/manager.h
+out/manager.stamp: Makefile $(MANAGER_SOURCES) OnlineFixManager/Info.plist out/onlinefix.dylib $(PROFILES) $(MANAGER_PATCH_OBJS) src/patch/manager.h
 	@mkdir -p out/OnlineFixManager.app/Contents/MacOS out/OnlineFixManager.app/Contents/Resources/runtime
 	cp OnlineFixManager/Info.plist out/OnlineFixManager.app/Contents/Info.plist
 	rm -f out/OnlineFixManager.app/Contents/Resources/runtime/*.json
@@ -52,25 +52,30 @@ out/onlinefix.dylib: out/onlinefix.arm64.dylib out/onlinefix.x86_64.dylib
 	lipo -create $^ -output $@
 	codesign -fs - $@
 
-out/test_onlinefix: tests/test_onlinefix.c src/session.c src/onlinefix.c src/profile.c src/children.c src/config.c src/onlinefix.h src/ipc.h src/patch/patch.h src/patch/terraria_server.h $(PATCH_SRCS) vendor/cJSON.c vendor/cJSON.h $(PROFILES)
+out/test_onlinefix: tests/test_onlinefix.c src/session.c src/onlinefix.c src/profile.c src/children.c src/config.c src/onlinefix.h src/ipc.h src/patch/patch.h src/patch/gamespecific/terraria_server.h $(PATCH_SRCS) vendor/cJSON.c vendor/cJSON.h $(PROFILES)
 	@mkdir -p out
 	$(CC) $(CFLAGS) tests/test_onlinefix.c src/session.c src/config.c $(PATCH_SRCS) vendor/cJSON.c -framework CoreFoundation -o $@
 
 out/test_onlinefix: | vendor/dobby/include/dobby.h
 
-out/test_manager: OnlineFixManager/Tests.swift OnlineFixManager/Models.swift OnlineFixManager/Installer.swift OnlineFixManager/SteamStore.swift OnlineFixManager/TerrariaServerPatch.swift $(MANAGER_PATCH_OBJS) src/patch/manager.h src/patch/terraria_server.h src/patch/pico_park_2.h
+out/test_manager: Makefile $(wildcard OnlineFixManager/Tests/*.swift OnlineFixManager/Models/*.swift OnlineFixManager/Services/*.swift OnlineFixManager/Patches/*.swift) $(MANAGER_PATCH_OBJS) src/patch/manager.h src/patch/gamespecific/terraria_server.h src/patch/gamespecific/pico_park_2.h src/patch/gamespecific/phasmophobia.h
 	@mkdir -p out
 	xcrun swiftc $(SWIFTFLAGS) $(filter %.swift %.o,$^) -o $@
 
-out/test_pico_patch: tests/test_pico_patch.c src/patch/pico_park_2.c src/patch/pico_park_2.h
+out/test_pico_patch: tests/test_pico_patch.c src/patch/gamespecific/pico_park_2.c src/patch/gamespecific/pico_park_2.h
 	$(CC) $(CFLAGS) tests/test_pico_patch.c -framework CoreFoundation -o $@
 
-test: out/test_onlinefix out/test_manager out/test_pico_patch out/manager.stamp
+out/test_phasmophobia_patch: tests/test_phasmophobia_patch.c src/patch/gamespecific/phasmophobia.c src/patch/gamespecific/phasmophobia.h
+	@mkdir -p out
+	$(CC) $(CFLAGS) tests/test_phasmophobia_patch.c -o $@
+
+test: out/test_onlinefix out/test_manager out/test_pico_patch out/test_phasmophobia_patch out/manager.stamp
 	./out/test_manager "$(CURDIR)/out/OnlineFixManager.app/Contents/Resources/runtime" "$(CURDIR)/out/test-manager-config.json"
 	ONLINEFIX_TEST_CONFIG="$(CURDIR)/out/test-manager-config.json" ./out/test_onlinefix
 	bash -n scripts/launch.sh
 	bash tests/test_fetch_dobby.sh
 	./out/test_pico_patch
+	./out/test_phasmophobia_patch
 
 clean:
 	rm -rf out build

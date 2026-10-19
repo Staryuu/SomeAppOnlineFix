@@ -26,7 +26,7 @@ static int test_rename(const char *from, const char *to) {
 #define PICO_AUTH_OFFSET 128u
 #define posix_spawn test_spawn
 #define rename test_rename
-#include "../src/patch/pico_park_2.c"
+#include "../src/patch/gamespecific/pico_park_2.c"
 #undef posix_spawn
 #undef rename
 
