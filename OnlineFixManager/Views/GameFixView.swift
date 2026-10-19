@@ -13,7 +13,7 @@ struct GameFixView: View {
     init(game: ManagedGame, supportsNativePatch: Bool, onSave: @escaping (ManagedGame) -> Bool) {
         var initial = game
         if game.id == 3241660 && game.repoPhoton.realtime.isEmpty {
-            initial.repoPhoton.realtime = PhotonServers.all[0].appID
+            initial.repoPhoton.realtime = PhotonServers.all.first?.appID ?? ""
         }
         _draft = ViewState(initialValue: initial)
         _repoEnabled = ViewState(initialValue: !game.repoPhoton.isEmpty)
@@ -60,10 +60,11 @@ struct GameFixView: View {
                         Toggle("Experimental Photon file patch", isOn: $repoEnabled)
                             .disabled(!game.fileFixInstalled)
                         Picker("Server", selection: $draft.repoPhoton.realtime) {
+                            Text("Choose a server").tag("")
                             ForEach(PhotonServers.all, id: \.appID) { server in
                                 Text(server.name).tag(server.appID)
                             }
-                            if !PhotonServers.all.contains(where: { $0.appID == draft.repoPhoton.realtime }) {
+                            if !draft.repoPhoton.realtime.isEmpty && !PhotonServers.all.contains(where: { $0.appID == draft.repoPhoton.realtime }) {
                                 Text("Previously configured server").tag(draft.repoPhoton.realtime)
                             }
                         }

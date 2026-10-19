@@ -451,7 +451,7 @@ struct ManagerView: View {
                 try rememberFix(status)
             } catch { errors.append("Cannot verify the PICO PARK 2 fix.\n\(error.localizedDescription)") }
         }
-        if configLoaded, let game = fixGames.first(where: { $0.id == 3241660 }), let directory = game.installDirectory {
+        if configLoaded, let game = fixGames.first(where: { $0.id == 3241660 }), game.fileFixInstalled, let directory = game.installDirectory {
             do {
                 let ids = try await Task.detached { try RepoPatch.appIDs(directory: directory) }.value
                 var status = fixes.first(where: { $0.id == game.id }) ?? game
@@ -460,7 +460,7 @@ struct ManagerView: View {
                 try rememberFix(status)
             } catch { errors.append("Cannot verify the R.E.P.O. fix.\n\(error.localizedDescription)") }
         }
-        if configLoaded, let game = fixGames.first(where: { $0.id == 739630 }), let directory = game.installDirectory {
+        if configLoaded, let game = fixGames.first(where: { $0.id == 739630 }), game.fileFixInstalled, let directory = game.installDirectory {
             do {
                 let appID = try await Task.detached { try PhasmophobiaPatch.appID(directory: directory) }.value
                 var status = fixes.first(where: { $0.id == game.id }) ?? game

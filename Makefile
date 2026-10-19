@@ -12,7 +12,8 @@ all: out/onlinefix.dylib manager
 
 manager: out/manager.stamp
 
-MANAGER_SOURCES := $(filter-out OnlineFixManager/Tests/%,$(wildcard OnlineFixManager/*/*.swift))
+PHOTON_SOURCE := $(or $(wildcard OnlineFixManager/Models/PhotonServers.local.swift),OnlineFixManager/Models/PhotonServers.swift)
+MANAGER_SOURCES := $(filter-out OnlineFixManager/Tests/% OnlineFixManager/Models/PhotonServers%.swift,$(wildcard OnlineFixManager/*/*.swift)) $(PHOTON_SOURCE)
 SWIFTFLAGS := -target arm64-apple-macos$(MIN_VER) -swift-version 6 -O -g -parse-as-library -module-cache-path out/swift-module-cache
 SWIFTFLAGS += -import-objc-header src/patch/manager.h
 MANAGER_PATCH_OBJS := out/src/patch/gamespecific/repo.o out/src/patch/gamespecific/terraria_server.o out/src/patch/gamespecific/pico_park_2.o out/src/patch/gamespecific/phasmophobia.o
@@ -58,7 +59,7 @@ out/test_onlinefix: tests/test_onlinefix.c src/session.c src/onlinefix.c src/pro
 
 out/test_onlinefix: | vendor/dobby/include/dobby.h
 
-out/test_manager: Makefile $(wildcard OnlineFixManager/Tests/*.swift OnlineFixManager/Models/*.swift OnlineFixManager/Services/*.swift OnlineFixManager/Patches/*.swift) $(MANAGER_PATCH_OBJS) src/patch/manager.h src/patch/gamespecific/terraria_server.h src/patch/gamespecific/pico_park_2.h src/patch/gamespecific/phasmophobia.h src/patch/gamespecific/repo.h
+out/test_manager: Makefile $(filter-out OnlineFixManager/Models/PhotonServers%.swift,$(wildcard OnlineFixManager/Tests/*.swift OnlineFixManager/Models/*.swift OnlineFixManager/Services/*.swift OnlineFixManager/Patches/*.swift)) $(PHOTON_SOURCE) $(MANAGER_PATCH_OBJS) src/patch/manager.h src/patch/gamespecific/terraria_server.h src/patch/gamespecific/pico_park_2.h src/patch/gamespecific/phasmophobia.h src/patch/gamespecific/repo.h
 	@mkdir -p out
 	xcrun swiftc $(SWIFTFLAGS) $(filter %.swift %.o,$^) -o $@
 
@@ -78,6 +79,7 @@ test: out/test_onlinefix out/test_manager out/test_pico_patch out/test_phasmopho
 	ONLINEFIX_TEST_CONFIG="$(CURDIR)/out/test-manager-config.json" ./out/test_onlinefix
 	bash -n scripts/launch.sh
 	bash tests/test_fetch_dobby.sh
+	python3 tests/test_configure_photon.py
 	./out/test_pico_patch
 	./out/test_phasmophobia_patch
 	./out/test_repo_patch

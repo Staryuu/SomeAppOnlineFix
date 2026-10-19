@@ -36,6 +36,11 @@ jobs:
           test "$RELEASE_VERSION" = "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' OnlineFixManager/Info.plist)"
           xcrun swiftc --version
           cmake --version
+      - name: Configure Photon servers from secrets
+        env:
+          PHOTON_PUN_APP_IDS: ${{ secrets.PHOTON_PUN_APP_IDS }}
+          PHOTON_VOICE_APP_IDS: ${{ secrets.PHOTON_VOICE_APP_IDS }}
+        run: python3 scripts/configure-photon.py
       - name: Build and test
         run: make -j4 test
       - name: Package release

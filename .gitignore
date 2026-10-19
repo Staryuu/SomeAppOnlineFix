@@ -3,3 +3,4 @@
 /vendor/dobby/
 .DS_Store
 /docs/
+/OnlineFixManager/Models/PhotonServers.local.swift

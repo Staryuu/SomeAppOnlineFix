@@ -74,6 +74,15 @@ import Foundation
         let catalog = GameConfiguration(games: []).fixGames(in: [])
         precondition(catalog.count == 4 && Set(catalog.map(\.id)).count == 4)
         precondition(catalog.allSatisfy { !$0.fileFixInstalled && !$0.hasFileFix })
+        // A remembered install path or leftover empty folder does not mean the game is installed.
+        for id: UInt32 in [3241660, 739630] {
+            var missing = ManagedGame(id: id, name: "Uninstalled game")
+            missing.installDirectory = temporary.appendingPathComponent("uninstalled-\(id)")
+            let configuration = GameConfiguration(games: [], fixes: [missing])
+            precondition(!configuration.fixGames(in: []).first(where: { $0.id == id })!.fileFixInstalled)
+            try fm.createDirectory(at: missing.installDirectory!, withIntermediateDirectories: true)
+            precondition(!configuration.fixGames(in: [missing]).first(where: { $0.id == id })!.fileFixInstalled)
+        }
         precondition(old.games[0].repoPhoton.isEmpty)
         let repoIDs = RepoPhotonIDs(realtime: "12345678-1234-4321-abcd-123456789abc", voice: "87654321-4321-4321-abcd-cba987654321")
         precondition(repoIDs.isValid)
@@ -104,9 +113,11 @@ import Foundation
         }
         precondition(Set(PhotonServers.voiceServers.map(\.appID)).count == PhotonServers.voiceServers.count)
         for server in PhotonServers.voiceServers where !server.appID.isEmpty {
-            precondition(RepoPhotonIDs(realtime: PhotonServers.all[0].appID, voice: server.appID).isValid)
+            for pun in PhotonServers.all {
+                precondition(RepoPhotonIDs(realtime: pun.appID, voice: server.appID).isValid)
+            }
         }
-        let punOnly = RepoPhotonIDs(realtime: PhotonServers.all[0].appID)
+        let punOnly = RepoPhotonIDs(realtime: repoIDs.realtime)
         precondition(punOnly.isValid)
         repo.repoPhoton = punOnly
         try files.save(GameConfiguration(games: [], fixes: [repo]))
@@ -185,7 +196,7 @@ import Foundation
         precondition(perGame[0].patches == game.patches && perGame[1].patches == PatchSettings())
         // A file fix alone must never opt its game into Steam routing.
         phasm = ManagedGame(id: 739630, name: "Phasmophobia")
-        phasm.phasmophobiaPhotonAppID = PhotonServers.all[0].appID
+        phasm.phasmophobiaPhotonAppID = repoIDs.realtime
         try files.save(GameConfiguration(games: [], fixes: [phasm]))
         try check(files.load().isEmpty)
         try files.save([game])
