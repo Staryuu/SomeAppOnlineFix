@@ -7,6 +7,31 @@ struct ManagerFiles: Sendable {
     var config: URL { directory.appendingPathComponent("games.json") }
     var log: URL { directory.appendingPathComponent("onlinefix.log") }
     var runtime: URL { directory.appendingPathComponent("runtime", isDirectory: true) }
+    private var customFixes: URL { directory.appendingPathComponent("custom-fixes.json") }
+
+    func loadCustomFixes() throws -> [ManagedGame] {
+        guard FileManager.default.fileExists(atPath: customFixes.path) else { return [] }
+        let data = try Data(contentsOf: customFixes)
+        guard data.count <= 1024 * 1024 else { throw ManagerError(message: "The custom fix list is too large.") }
+        let games = try JSONDecoder().decode([ManagedGame].self, from: data)
+        try validateCustomFixes(games)
+        return games
+    }
+
+    func saveCustomFixes(_ games: [ManagedGame]) throws {
+        try validateCustomFixes(games)
+        let data = try JSONEncoder().encode(games)
+        guard data.count <= 1024 * 1024 else { throw ManagerError(message: "The custom fix list is too large.") }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: customFixes, options: .atomic)
+    }
+
+    private func validateCustomFixes(_ games: [ManagedGame]) throws {
+        guard Set(games.map(\.id)).count == games.count,
+              games.allSatisfy({ ManagedGame.validID($0.id) && !$0.name.isEmpty && $0.installDirectory?.isFileURL == true }) else {
+            throw ManagerError(message: "Custom fixes need unique, valid AppIDs and local game folders.")
+        }
+    }
 
     func load() throws -> [ManagedGame] {
         try loadConfiguration().games

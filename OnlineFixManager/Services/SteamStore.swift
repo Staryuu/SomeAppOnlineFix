@@ -1,6 +1,22 @@
 import Foundation
 
 enum SteamStore {
+    static func artwork(for id: UInt32) async throws -> URL? {
+        guard ManagedGame.validID(id) else { return nil }
+        // shortcut: Store artwork metadata is undocumented; keep CDN and placeholder fallbacks.
+        let url = URL(string: "https://store.steampowered.com/api/appdetails?appids=\(id)&filters=basic")!
+        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 15))
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= 2 * 1024 * 1024 else { return nil }
+        struct Result: Decodable {
+            struct Details: Decodable { let header_image: URL? }
+            let success: Bool
+            let data: Details?
+        }
+        let result = try JSONDecoder().decode([String: Result].self, from: data)[String(id)]
+        guard result?.success == true, let image = result?.data?.header_image, image.scheme == "https" else { return nil }
+        return image
+    }
+
     private struct SearchResponse: Decodable {
         struct Item: Decodable {
             let id: UInt32

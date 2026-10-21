@@ -14,6 +14,7 @@ import Foundation
         try fm.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: temporary) }
         let bundledResources = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        try CustomFixChecks.run(archiver: bundledResources.deletingLastPathComponent().appendingPathComponent("7zz"), temporary: temporary)
         let resources = temporary.appendingPathComponent("runtime-fixture")
         try fm.copyItem(at: bundledResources, to: resources)
         let picoApp = temporary.appendingPathComponent("PICO PARK 2/pico_park_2.app")

@@ -1,6 +1,27 @@
 import Foundation
 
 enum SteamLibrary {
+    static func windowsExecutables(in directory: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(atPath: directory.path) else {
+            throw ManagerError(message: "Cannot read the game folder.")
+        }
+        var found: [String] = []
+        var visited = 0
+        while let path = enumerator.nextObject() as? String {
+            visited += 1
+            guard visited <= 100000 else { throw ManagerError(message: "Too many files to inspect. Choose a more specific game folder.") }
+            let url = directory.appendingPathComponent(path)
+            let type = try fm.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType
+            if type == .typeSymbolicLink || url.lastPathComponent.hasPrefix(".") || url.pathExtension.lowercased() == "app" {
+                enumerator.skipDescendants()
+                continue
+            }
+            if type == .typeRegular && url.pathExtension.lowercased() == "exe" { found.append(path) }
+        }
+        return found.sorted()
+    }
+
     // VDF stores the fields we need as quoted key/value pairs; nested blocks stay untouched.
     static func pairs(_ text: String) -> [(String, String)] {
         let expression = try! NSRegularExpression(pattern: #""((?:\\.|[^"\\])*)"\s*"((?:\\.|[^"\\])*)""#)

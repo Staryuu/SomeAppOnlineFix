@@ -19,12 +19,18 @@ SWIFTFLAGS += -import-objc-header src/patch/manager.h
 MANAGER_PATCH_OBJS := out/src/patch/gamespecific/repo.o out/src/patch/gamespecific/terraria_server.o out/src/patch/gamespecific/pico_park_2.o out/src/patch/gamespecific/phasmophobia.o
 PROFILES := $(wildcard signatures/macos.arm64/*.json)
 
-out/manager.stamp: Makefile $(MANAGER_SOURCES) OnlineFixManager/Info.plist out/onlinefix.dylib $(PROFILES) $(MANAGER_PATCH_OBJS) src/patch/manager.h
+out/7zip/7zz: scripts/fetch-7zip.sh
+	bash scripts/fetch-7zip.sh
+
+out/manager.stamp: Makefile $(MANAGER_SOURCES) OnlineFixManager/Info.plist out/onlinefix.dylib $(PROFILES) $(MANAGER_PATCH_OBJS) src/patch/manager.h out/7zip/7zz
 	@mkdir -p out/OnlineFixManager.app/Contents/MacOS out/OnlineFixManager.app/Contents/Resources/runtime
 	cp OnlineFixManager/Info.plist out/OnlineFixManager.app/Contents/Info.plist
 	rm -f out/OnlineFixManager.app/Contents/Resources/runtime/*.json
 	rm -f out/OnlineFixManager.app/Contents/Resources/runtime/pico_park_2_endpoint.py
 	cp out/onlinefix.dylib $(PROFILES) out/OnlineFixManager.app/Contents/Resources/runtime/
+	cp out/7zip/7zz out/OnlineFixManager.app/Contents/Resources/7zz
+	cp out/7zip/License.txt out/OnlineFixManager.app/Contents/Resources/7zip-License.txt
+	codesign --force --sign - out/OnlineFixManager.app/Contents/Resources/7zz
 	xcrun swiftc $(SWIFTFLAGS) $(MANAGER_SOURCES) $(MANAGER_PATCH_OBJS) -o out/OnlineFixManager.app/Contents/MacOS/OnlineFixManager
 	codesign --force --sign - out/OnlineFixManager.app
 	@touch $@

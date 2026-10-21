@@ -34,6 +34,8 @@ struct ManagerView: View {
     @ViewState private var searchError: String?
     @ViewState private var patchGame: ManagedGame?
     @ViewState private var fixGame: ManagedGame?
+    @ViewState private var customGames: [ManagedGame] = []
+    @ViewState private var selectedCustomGame: ManagedGame?
 
     private var fixGames: [ManagedGame] {
         GameConfiguration(games: games, fixes: fixes).fixGames(in: library)
@@ -134,6 +136,10 @@ struct ManagerView: View {
                 .alert("Cannot update fix", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                     Button("OK", role: .cancel) { error = nil }
                 } message: { Text(error ?? "") }
+        }
+        .sheet(item: $selectedCustomGame) { game in
+            CustomFixView(library: library, initialGame: game.id == 0 ? nil : game,
+                          onRemember: rememberCustomFix, onRemove: removeCustomFix)
         }
         .onChange(of: selectedPane) { _, pane in searchFocused = pane == .add }
         .task { await reload() }
@@ -241,13 +247,43 @@ struct ManagerView: View {
 
     private var fixesPane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Available fixes").font(.title2.bold())
+            HStack {
+                Text("Available fixes").font(.title2.bold())
+                Spacer()
+                Button("Custom Fix…", systemImage: "shippingbox") { selectedCustomGame = ManagedGame(id: 0, name: "Custom Fix") }
+                    .buttonStyle(.borderedProminent)
+            }
             Text("Fix game files here. Steam settings are in My Games → Patch.")
                 .foregroundStyle(.secondary)
             ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !customGames.isEmpty {
+                    Text("Custom Fixes").font(.headline)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 16)], alignment: .leading, spacing: 16) {
-                    ForEach(fixGames) { game in fixCard(game) }
+                    ForEach(customGames) { game in
+                        Button { selectedCustomGame = game } label: {
+                            VStack(alignment: .leading, spacing: 10) {
+                                GameArtwork(game: game).frame(height: 112).accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(game.name).font(.headline).lineLimit(1)
+                                    Text("Custom Fix · AppID \(String(game.id))").font(.caption).foregroundStyle(.secondary)
+                                    Text("by online-fix.me").font(.caption).foregroundStyle(.secondary)
+                                    Text("Windows / NotProton").font(.caption).foregroundStyle(.secondary)
+                                }.padding([.horizontal, .bottom], 14)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
+                        }.buttonStyle(.plain)
+                    }
                 }
+                    }
+                    Text("Built-in Fixes").font(.headline)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 16)], alignment: .leading, spacing: 16) {
+                        ForEach(fixGames) { game in fixCard(game) }
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
             Text("Install a game, then refresh your library.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -259,10 +295,7 @@ struct ManagerView: View {
     private func fixCard(_ game: ManagedGame) -> some View {
         Button { fixGame = game } label: {
             VStack(alignment: .leading, spacing: 0) {
-                AsyncImage(url: game.artworkURL) { phase in
-                    if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
-                    else { ZStack { Color.secondary.opacity(0.1); Image(systemName: "gamecontroller").font(.largeTitle).foregroundStyle(.tertiary) } }
-                }
+                GameArtwork(game: game)
                 .frame(height: 112).clipped().accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(game.name).font(.headline).lineLimit(1)
@@ -291,10 +324,7 @@ struct ManagerView: View {
 
     private func gameRow(_ game: ManagedGame, enabled: Bool) -> some View {
         HStack(spacing: 16) {
-            AsyncImage(url: game.artworkURL) { phase in
-                if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
-                else { ZStack { Color.secondary.opacity(0.1); Image(systemName: "gamecontroller").font(.title).foregroundStyle(.tertiary) } }
-            }
+            GameArtwork(game: game)
             .frame(width: 140, height: 66).clipShape(RoundedRectangle(cornerRadius: 7)).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text(game.name).font(.headline).lineLimit(2)
@@ -432,6 +462,8 @@ struct ManagerView: View {
 
     private func reload() async {
         var errors: [String] = []
+        do { customGames = try files.loadCustomFixes() }
+        catch { errors.append("Cannot load custom fixes.\n\(error.localizedDescription)") }
         do {
             let configuration = try files.loadConfiguration()
             games = configuration.games
@@ -470,6 +502,20 @@ struct ManagerView: View {
             } catch { errors.append("Cannot verify the Phasmophobia fix.\n\(error.localizedDescription)") }
         }
         if !errors.isEmpty { self.error = errors.joined(separator: "\n\n") }
+    }
+
+    private func removeCustomFix(_ id: UInt32) throws {
+        let next = try files.loadCustomFixes().filter { $0.id != id }
+        try files.saveCustomFixes(next)
+        customGames = next
+    }
+
+    private func rememberCustomFix(_ game: ManagedGame) throws {
+        var next = try files.loadCustomFixes()
+        if let index = next.firstIndex(where: { $0.id == game.id }) { next[index] = game }
+        else { next.append(game) }
+        try files.saveCustomFixes(next)
+        customGames = next
     }
 
     private func rememberFix(_ game: ManagedGame) throws {
