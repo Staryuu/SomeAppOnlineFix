@@ -554,8 +554,8 @@ struct ManagerView: View {
         let nextPhasm: String = next.first(where: { $0.id == 739630 })?.phasmophobiaPhotonAppID ?? ""
         var changedLauncher: URL?
         var changedPicoApp: URL?
-        let previousRepo = fixes.first(where: { $0.id == 3241660 })?.repoPhoton ?? RepoPhotonIDs()
-        let nextRepo = next.first(where: { $0.id == 3241660 })?.repoPhoton ?? RepoPhotonIDs()
+        let previousRepo: RepoPhotonIDs = fixes.first(where: { $0.id == 3241660 })?.repoPhoton ?? RepoPhotonIDs()
+        let nextRepo: RepoPhotonIDs = next.first(where: { $0.id == 3241660 })?.repoPhoton ?? RepoPhotonIDs()
         var changedRepoDirectory: URL?
         var changedPhasmDirectory: URL?
         do {
