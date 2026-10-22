@@ -4,7 +4,7 @@
 
 - CustomFix workflow for installing and managing game-specific fixes directly in Manager.
 - Built-in Fix catalog organizing patch sources and supported games.
-- Native Photon multiplayer compatibility patches for PICO PARK 2, R.E.P.O., and Phasmophobia.
+- Native Photon multiplayer compatibility patches for Some Game
 - Dynamic Steam client build detection with versioned compatibility profile loading.
 
 ## v1.0.0
