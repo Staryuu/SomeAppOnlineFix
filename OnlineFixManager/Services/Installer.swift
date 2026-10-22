@@ -119,8 +119,16 @@ struct SteamInstaller: Sendable {
         let bundled = app.appendingPathComponent("Contents/MacOS/steamclient.dylib")
         let client = FileManager.default.fileExists(atPath: bundled.path) ? bundled
             : steamRoot.appendingPathComponent("Steam.AppBundle/Steam/Contents/MacOS/steamclient.dylib")
-        let manifest = client.deletingLastPathComponent().appendingPathComponent("package/steam_client_osx.manifest")
+        let package = client.deletingLastPathComponent().appendingPathComponent("package")
+        let manifests = ["steam_client_signed-2_osx", "steam_client_signed_osx", "steam_client_osx"].compactMap { name -> (URL, Date)? in
+            let url = package.appendingPathComponent("\(name).manifest")
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let modified = attributes[.modificationDate] as? Date else { return nil }
+            return (url, modified)
+        }
+        let manifest = manifests.sorted { $0.1 > $1.1 }.first?.0
         guard FileManager.default.isReadableFile(atPath: client.path),
+              let manifest,
               let data = try? Data(contentsOf: manifest), data.count <= 1024 * 1024,
               let text = String(data: data, encoding: .utf8), !text.contains("\0") else {
             throw ManagerError(message: "Cannot verify the Steam client build. Start Steam once to finish its setup, then quit it and retry.")

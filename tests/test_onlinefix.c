@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include "../src/onlinefix.h"
 
@@ -60,9 +61,8 @@ static void write_config(const char *path, const char *json) {
     assert(fclose(file) == 0);
 }
 
-static void check_profiles(void) {
-    assert(!load_profile("signatures/macos.arm64", 1788652215));
-    cJSON *current = load_profile("signatures/macos.arm64", 1791918634);
+static void check_profile(uint32_t build) {
+    cJSON *current = load_profile("signatures/macos.arm64", build);
     assert(current);
     const size_t count = sizeof(targets) / sizeof(targets[0]);
     const char *names[count];
@@ -73,11 +73,14 @@ static void check_profiles(void) {
     size_t current_size = 0;
     cJSON_ArrayForEach(entry, cJSON_GetObjectItemCaseSensitive(current, "signatures")) {
         const char *bytes = cJSON_GetObjectItemCaseSensitive(entry, "aob_hex")->valuestring;
-        assert(!strchr(bytes, '?'));
         while (*bytes) {
             if (isspace((unsigned char)*bytes)) { ++bytes; continue; }
-            assert(current_size < sizeof(current_sample) && nibble(bytes[0]) >= 0 && nibble(bytes[1]) >= 0);
-            current_sample[current_size++] = (unsigned char)(nibble(bytes[0]) * 16 + nibble(bytes[1]));
+            assert(current_size < sizeof(current_sample));
+            if (bytes[0] == '?' && bytes[1] == '?') current_sample[current_size++] = 0x5a;
+            else {
+                assert(nibble(bytes[0]) >= 0 && nibble(bytes[1]) >= 0);
+                current_sample[current_size++] = (unsigned char)(nibble(bytes[0]) * 16 + nibble(bytes[1]));
+            }
             bytes += 2;
         }
     }
@@ -96,7 +99,9 @@ static void check_profiles(void) {
 }
 
 int main(void) {
-    check_profiles();
+    assert(!load_profile("signatures/macos.arm64", 1788652215));
+    check_profile(1791918634);
+    check_profile(1792618285);
     OFDispatch utils_hook = (OFDispatch)of_identity_hook.replacement;
     uint64_t (*input_hook)(void *, uint32_t) = (void *)of_input_hook.replacement;
     int (*callback_hook)(void *, int, int, int, const void *, int) = (void *)of_stats_hook.replacement;
@@ -222,6 +227,18 @@ int main(void) {
     assert(!load_profile("signatures/macos.arm64", client_build(client)));
     assert(!load_profile("signatures/macos.arm64/1791918634.json", 1788652215));
     assert(!load_profile("signatures/macos.arm64", 0));
+    char signed_manifest[PATH_MAX];
+    snprintf(signed_manifest, sizeof(signed_manifest), "%s/package/steam_client_signed-2_osx.manifest", client_directory);
+    write_config(signed_manifest, "\"version\" \"1792618285\"");
+    struct stat legacy_info;
+    assert(stat(manifest, &legacy_info) == 0);
+    struct timeval newer[2] = {{legacy_info.st_mtimespec.tv_sec + 10, 0}, {legacy_info.st_mtimespec.tv_sec + 10, 0}};
+    assert(utimes(signed_manifest, newer) == 0);
+    assert(client_build(client) == 1792618285);
+    write_config(signed_manifest, "\"version\" \"invalid\"");
+    assert(utimes(signed_manifest, newer) == 0);
+    assert(client_build(client) == 0); // Do not fall back to stale metadata.
+    assert(unlink(signed_manifest) == 0);
     assert(unlink(manifest) == 0);
     profile = cJSON_Parse("{\"steam_build\":1791918634}");
     assert(client_build(client) == 0);

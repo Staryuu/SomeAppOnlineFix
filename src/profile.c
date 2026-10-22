@@ -82,8 +82,21 @@ static uint32_t client_build(const char *path) {
     if (!slash || slash - path >= PATH_MAX) return 0;
     char manifest[PATH_MAX], version[11] = {0};
     uint64_t build = 0;
-    int written = snprintf(manifest, sizeof(manifest), "%.*s/package/steam_client_osx.manifest", (int)(slash - path), path);
-    if (written < 0 || (size_t)written >= sizeof(manifest)) return 0;
+    const char *variants[] = {"steam_client_signed-2_osx", "steam_client_signed_osx", "steam_client_osx"};
+    struct stat newest = {0};
+    bool found = false;
+    for (size_t i = 0; i < sizeof(variants) / sizeof(variants[0]); ++i) {
+        char candidate[PATH_MAX];
+        struct stat info;
+        int written = snprintf(candidate, sizeof(candidate), "%.*s/package/%s.manifest", (int)(slash - path), path, variants[i]);
+        if (written < 0 || (size_t)written >= sizeof(candidate)) return 0;
+        if (stat(candidate, &info)) continue;
+        if (!found || info.st_mtimespec.tv_sec > newest.st_mtimespec.tv_sec ||
+            (info.st_mtimespec.tv_sec == newest.st_mtimespec.tv_sec && info.st_mtimespec.tv_nsec > newest.st_mtimespec.tv_nsec)) {
+            strcpy(manifest, candidate); newest = info; found = true;
+        }
+    }
+    if (!found) return 0;
     FILE *file = fopen(manifest, "rb");
     if (!file) return 0;
     char *raw = calloc(1024 * 1024 + 1, 1);

@@ -329,6 +329,14 @@ import Foundation
         profile["steam_build"] = 1791918634
         try JSONSerialization.data(withJSONObject: profile).write(to: profileURL)
         try check(installer.verifyClient(steamRoot: root) == 1791918634)
+        let signedManifest = buildManifest.deletingLastPathComponent().appendingPathComponent("steam_client_signed-2_osx.manifest")
+        try Data(#""version" "1792618285""#.utf8).write(to: signedManifest)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: signedManifest.path)
+        try check(installer.verifyClient(steamRoot: root) == 1792618285)
+        try Data(#""version" "invalid""#.utf8).write(to: signedManifest)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: signedManifest.path)
+        try expectFailure { try installer.verifyClient(steamRoot: root) }
+        try fm.removeItem(at: signedManifest)
         profile["steam_build"] = 1788652215
         try JSONSerialization.data(withJSONObject: profile).write(to: profileURL)
         try expectFailure { try installer.install(steamRoot: root) }

@@ -86,6 +86,7 @@ test: out/test_onlinefix out/test_manager out/test_pico_patch out/test_phasmopho
 	bash -n scripts/launch.sh
 	bash tests/test_fetch_dobby.sh
 	python3 tests/test_configure_photon.py
+	python3 tests/test_steam_signatures.py
 	./out/test_pico_patch
 	./out/test_phasmophobia_patch
 	./out/test_repo_patch

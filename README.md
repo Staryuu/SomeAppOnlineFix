@@ -25,6 +25,21 @@ Issues and PRs are welcome. Keep changes focused and run `make test` before subm
 For compatibility reports, include the game/AppID, macOS version, Steam build, and relevant logs.
 Game-specific patches belong in `src/patch/`.
 
+After a Steam update, generate a compatibility profile without AI, Ghidra, or extra Python packages:
+
+```bash
+python3 scripts/update-steam-signatures.py
+make test
+```
+
+The script reads the installed ARM64 client and the newest Steam package manifest.
+It uses the highest bundled build as its reference; use `--reference path/to/profile.json`
+or `--client path/to/steamclient.dylib` to select another input.
+Relative B/BL and ADR/ADRP instructions become `??` wildcards. Every target must
+have exactly one aligned match before a new JSON is written; existing profiles are
+never overwritten. Structural or ABI changes require manual analysis. Unique byte
+matches alone do not establish gameplay compatibility.
+
 ## Credits
 
 - [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) / [OpenSteamTool](https://github.com/OpenSteam001/OpenSteamTool) — OnlineFix approach.
