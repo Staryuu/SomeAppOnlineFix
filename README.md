@@ -2,7 +2,7 @@
 
 Experimental OnlineFix implementation for macOS on Apple Silicon.
 
-> [!CAUTION]
+> [!WARNING]
 > **This project is still experimental.** Bugs and compatibility issues are expected.
 >
 > **Intel-based Macs are not supported.** Apple Silicon (M1 or newer) and macOS 15+ are required.
