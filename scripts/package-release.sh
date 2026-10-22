@@ -33,9 +33,9 @@ NOTES=$(cat out/release/notes.md)
 printf 'OnlineFixManager %s.\n\nSupported Steam builds: %s.\n\n%s\n' \
     "$VERSION" "$PROFILE_BUILDS" "$NOTES" > out/release/notes.md
 codesign --verify --deep --strict out/OnlineFixManager.app
-ARCHIVE="OnlineFixManager-v$VERSION-macos-arm64.zip"
+ARCHIVE="OnlineFixManager-v$VERSION.zip"
 ditto -c -k --norsrc --keepParent out/OnlineFixManager.app "out/release/$ARCHIVE"
-DMG="OnlineFixManager-v$VERSION-macos-arm64.dmg"
+DMG="OnlineFixManager-v$VERSION.dmg"
 DMG_STAGE=$(mktemp -d "$ROOT/out/dmg-XXXXXX")
 trap 'rm -rf "$DMG_STAGE"' EXIT
 ditto out/OnlineFixManager.app "$DMG_STAGE/OnlineFixManager.app"
