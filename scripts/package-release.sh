@@ -35,5 +35,14 @@ printf 'OnlineFixManager %s.\n\nSupported Steam builds: %s.\n\n%s\n' \
 codesign --verify --deep --strict out/OnlineFixManager.app
 ARCHIVE="OnlineFixManager-v$VERSION-macos-arm64.zip"
 ditto -c -k --norsrc --keepParent out/OnlineFixManager.app "out/release/$ARCHIVE"
+DMG="OnlineFixManager-v$VERSION-macos-arm64.dmg"
+DMG_STAGE=$(mktemp -d "$ROOT/out/dmg-XXXXXX")
+trap 'rm -rf "$DMG_STAGE"' EXIT
+ditto out/OnlineFixManager.app "$DMG_STAGE/OnlineFixManager.app"
+ln -s /Applications "$DMG_STAGE/Applications"
+hdiutil create -volname "OnlineFixManager" -srcfolder "$DMG_STAGE" -ov -format UDZO "out/release/$DMG"
+rm -rf "$DMG_STAGE"
+trap - EXIT
 cd out/release
-shasum -a 256 "$ARCHIVE" > SHA256SUMS
+shasum -a 256 "$ARCHIVE" "$DMG" > SHA256SUMS
+

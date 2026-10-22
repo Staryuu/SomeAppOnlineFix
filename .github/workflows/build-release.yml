@@ -1,17 +1,17 @@
-name: Build release ZIP
+name: Build and release
 
 on:
   workflow_dispatch:
     inputs:
       onlinefix_version:
-        description: 'OnlineFixManager version (for example 1.0.0; tag: v1.0.0)'
+        description: 'OnlineFixManager version (for example 2.0.0; tag: v2.0.0)'
         required: true
-        default: '1.0.0'
+        default: '2.0.0'
         type: string
       steam_version:
         description: 'A supported Steam build to validate (all bundled profiles are included)'
         required: true
-        default: '1791918634'
+        default: '1792618285'
         type: string
 
 permissions:
@@ -48,5 +48,32 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: OnlineFixManager-macos-arm64
-          path: out/release/*.zip
+          path: out/release/
           if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: OnlineFixManager-macos-arm64
+          path: release
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.onlinefix_version }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          if gh release view "v$RELEASE_VERSION" >/dev/null 2>&1; then
+            gh release upload "v$RELEASE_VERSION" release/*.zip release/*.dmg release/SHA256SUMS --clobber
+            gh release edit "v$RELEASE_VERSION" --notes-file release/notes.md --title "OnlineFixManager $RELEASE_VERSION"
+          else
+            gh release create "v$RELEASE_VERSION" release/*.zip release/*.dmg release/SHA256SUMS \
+              --target "$RELEASE_COMMIT" --title "OnlineFixManager $RELEASE_VERSION" \
+              --notes-file release/notes.md
+          fi
+
